@@ -1,0 +1,31 @@
+x-clockping-test-image: &clockping-test-image
+  image: clockping-test:latest
+
+services:
+  tcp-target:
+    <<: *clockping-test-image
+    command: ["python3", "-u", "-m", "http.server", "8080", "--bind", "0.0.0.0"]
+
+  gtp-v1u-target:
+    <<: *clockping-test-image
+    command: ["python3", "-u", "tests/e2e/gtp_echo_server.py", "--mode", "v1", "--port", "2152"]
+
+  gtp-v1c-target:
+    <<: *clockping-test-image
+    command: ["python3", "-u", "tests/e2e/gtp_echo_server.py", "--mode", "v1", "--port", "2123"]
+
+  gtp-v2c-target:
+    <<: *clockping-test-image
+    command: ["python3", "-u", "tests/e2e/gtp_echo_server.py", "--mode", "v2", "--port", "2123"]
+
+  sut:
+    <<: *clockping-test-image
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    depends_on:
+      - tcp-target
+      - gtp-v1u-target
+      - gtp-v1c-target
+      - gtp-v2c-target
+    command: ["bash", "tests/e2e/run.sh"]
