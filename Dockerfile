@@ -1,10 +1,10 @@
 # syntax=docker/dockerfile:1
 ARG BUILD_IMAGE=rust
-ARG BUILD_IMAGE_TAG=1-bookworm
+ARG BUILD_IMAGE_TAG=1.95-bookworm
 ARG RUNTIME_IMAGE=debian
 ARG RUNTIME_IMAGE_TAG=bookworm-slim
 ARG RELEASE_BUILD_IMAGE=rust
-ARG RELEASE_BUILD_IMAGE_TAG=1-alpine
+ARG RELEASE_BUILD_IMAGE_TAG=1.95-alpine
 
 FROM ${BUILD_IMAGE}:${BUILD_IMAGE_TAG} AS integration-build
 
@@ -61,6 +61,16 @@ RUN --mount=type=cache,id=clockping-cargo-registry,target=/usr/local/cargo/regis
  && chmod 1777 /out/rootfs/tmp
 
 FROM scratch AS release
+
+ARG CLOCKPING_BUILD_DATE
+ARG CLOCKPING_GIT_COMMIT
+ARG CLOCKPING_GIT_COMMIT_DATE
+ARG CLOCKPING_GIT_DESCRIBE
+
+LABEL org.opencontainers.image.created="${CLOCKPING_BUILD_DATE}" \
+      org.opencontainers.image.revision="${CLOCKPING_GIT_COMMIT}" \
+      org.opencontainers.image.version="${CLOCKPING_GIT_DESCRIBE}" \
+      org.opencontainers.image.clockping.commit-date="${CLOCKPING_GIT_COMMIT_DATE}"
 
 COPY --from=release-build /out/rootfs/ /
 COPY --from=release-build /out/clockping /clockping

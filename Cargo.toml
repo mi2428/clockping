@@ -3,6 +3,14 @@ name = "clockping"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
+description = "Timestamped generic pinger CLI"
+repository = "https://github.com/mi2428/clockping"
+homepage = "https://github.com/mi2428/clockping"
+readme = "README.md"
+publish = false
+
+[package.metadata.dist]
+dist = true
 
 [dependencies]
 anyhow = "1.0.102"

@@ -1,0 +1,40 @@
+- name: Prepare clockping build inputs
+  shell: bash
+  run: |
+    git config --global --add safe.directory "${GITHUB_WORKSPACE}"
+    echo "CARGO_INCREMENTAL=0" >> "${GITHUB_ENV}"
+
+- name: Install Linux build dependencies
+  if: runner.os == 'Linux'
+  shell: bash
+  run: |
+    if command -v sudo >/dev/null 2>&1; then
+      sudo_cmd=sudo
+    else
+      sudo_cmd=
+    fi
+    ${sudo_cmd} apt-get update
+    ${sudo_cmd} apt-get install -y --no-install-recommends \
+      build-essential \
+      ca-certificates \
+      jq \
+      make \
+      pkg-config \
+      xz-utils
+
+- name: Cache Cargo sources
+  uses: actions/cache@v5
+  with:
+    path: |
+      ~/.cargo/registry/index
+      ~/.cargo/registry/cache
+      ~/.cargo/git/db
+    key: ${{ runner.os }}-release-cargo-sources-${{ hashFiles('Cargo.lock') }}
+    restore-keys: ${{ runner.os }}-release-cargo-sources-
+
+- name: Cache Rust build outputs
+  uses: actions/cache@v5
+  with:
+    path: target
+    key: ${{ runner.os }}-${{ join(matrix.targets, '-') }}-${{ contains(join(matrix.targets, ','), 'unknown-linux-gnu') && 'glibc-bookworm' || 'native' }}-release-target-${{ hashFiles('rust-toolchain.toml', 'Cargo.toml', 'Cargo.lock', 'src/**', 'tests/**') }}
+    restore-keys: ${{ runner.os }}-${{ join(matrix.targets, '-') }}-${{ contains(join(matrix.targets, ','), 'unknown-linux-gnu') && 'glibc-bookworm' || 'native' }}-release-target-
