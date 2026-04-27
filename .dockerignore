@@ -1,2 +1,6 @@
 /.git
 /target
+/bin
+/dist
+/.cargo-linux
+/.home-linux
