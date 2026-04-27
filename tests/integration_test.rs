@@ -1,8 +1,9 @@
 use std::{
-    net::{TcpStream, ToSocketAddrs, UdpSocket},
-    process::Command,
+    io::{BufRead, BufReader, Read},
+    net::{TcpListener, TcpStream, ToSocketAddrs, UdpSocket},
+    process::{Child, Command, ExitStatus, Output as ProcessOutput, Stdio},
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use serde_json::Value;
@@ -18,6 +19,119 @@ const DEFAULT_BIN: &str = env!("CARGO_BIN_EXE_clockping");
 const RETRIES: usize = 50;
 const RETRY_DELAY: Duration = Duration::from_millis(100);
 const PROBE_TIMEOUT: Duration = Duration::from_millis(200);
+
+#[test]
+fn exits_nonzero_when_every_probe_fails() {
+    let target = unused_local_tcp_addr();
+    let output = run_clockping_raw(&[
+        "--timestamp",
+        "none",
+        "tcp",
+        "-c",
+        "1",
+        "-W",
+        "0.1",
+        &target,
+    ]);
+    let combined = combined_output(&output);
+
+    assert!(
+        !output.status.success(),
+        "expected all-loss run to fail\n{combined}"
+    );
+    assert_contains(&combined, "1 probes transmitted, 0 replies received");
+    assert_contains(&combined, "100.0% loss");
+}
+
+#[test]
+fn broken_stdout_pipe_exits_successfully() {
+    let target = unused_local_tcp_addr();
+    let bin = clockping_bin();
+    let mut child = Command::new(&bin)
+        .args([
+            "--timestamp",
+            "none",
+            "tcp",
+            "-i",
+            "0",
+            "-W",
+            "0.01",
+            &target,
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to spawn clockping");
+
+    let stdout = child.stdout.take().expect("missing stdout pipe");
+    let mut reader = BufReader::new(stdout);
+    let mut first_line = String::new();
+    reader
+        .read_line(&mut first_line)
+        .expect("failed to read first output line");
+    assert_contains(&first_line, "tcp ");
+    drop(reader);
+
+    let status = wait_for_child(&mut child, Duration::from_secs(3));
+    let stderr = child_stderr(&mut child);
+    assert!(
+        status.success(),
+        "expected broken pipe to exit successfully, got {status}\n{stderr}"
+    );
+    assert!(
+        !stderr.contains("panicked"),
+        "broken pipe should not panic\n{stderr}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn sigint_interrupts_active_probe() {
+    let bin = clockping_bin();
+    let started = Instant::now();
+    let mut child = Command::new(&bin)
+        .args([
+            "--timestamp",
+            "none",
+            "gtp",
+            "v1u",
+            "-W",
+            "10",
+            "-i",
+            "10",
+            "127.0.0.1",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to spawn clockping");
+
+    // Allow the binary to enter the probe loop so this verifies interruption
+    // of an active probe rather than process startup signal handling.
+    thread::sleep(Duration::from_secs(1));
+    let signal_status = Command::new("kill")
+        .args(["-INT", &child.id().to_string()])
+        .status()
+        .expect("failed to send SIGINT");
+    assert!(signal_status.success(), "failed to send SIGINT");
+
+    let status = wait_for_child(&mut child, Duration::from_secs(3));
+    let stdout = child_stdout(&mut child);
+    let stderr = child_stderr(&mut child);
+    assert!(
+        status.success(),
+        "expected SIGINT summary exit to succeed, got {status}\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(4),
+        "SIGINT did not interrupt the active probe promptly"
+    );
+    assert_contains(&stdout, "clockping statistics");
+    assert!(
+        !stderr.contains("panicked"),
+        "SIGINT should not panic\n{stderr}"
+    );
+}
 
 #[test]
 #[ignore = "requires docker compose test network"]
@@ -227,13 +341,8 @@ fn retry(message: &str, mut probe: impl FnMut() -> Option<()>) {
 fn run_clockping(args: &[&str]) -> String {
     let bin = clockping_bin();
     eprintln!("+ {bin} {}", args.join(" "));
-    let output = Command::new(&bin)
-        .args(args)
-        .output()
-        .expect("failed to spawn clockping");
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let combined = format!("{stdout}{stderr}");
+    let output = run_clockping_raw(args);
+    let combined = combined_output(&output);
     eprintln!("{combined}");
 
     assert!(
@@ -245,8 +354,62 @@ fn run_clockping(args: &[&str]) -> String {
     combined
 }
 
+fn run_clockping_raw(args: &[&str]) -> ProcessOutput {
+    Command::new(clockping_bin())
+        .args(args)
+        .output()
+        .expect("failed to spawn clockping")
+}
+
 fn clockping_bin() -> String {
     std::env::var("CLOCKPING_BIN").unwrap_or_else(|_| DEFAULT_BIN.to_string())
+}
+
+fn combined_output(output: &ProcessOutput) -> String {
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    format!("{stdout}{stderr}")
+}
+
+fn unused_local_tcp_addr() -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("failed to bind local TCP listener");
+    let addr = listener.local_addr().expect("failed to read local address");
+    drop(listener);
+    addr.to_string()
+}
+
+fn wait_for_child(child: &mut Child, timeout: Duration) -> ExitStatus {
+    let started = Instant::now();
+    loop {
+        if let Some(status) = child.try_wait().expect("failed to poll child") {
+            return status;
+        }
+        if started.elapsed() >= timeout {
+            let _ = child.kill();
+            panic!("child did not exit within {timeout:?}");
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+}
+
+fn child_stdout(child: &mut Child) -> String {
+    let mut output = String::new();
+    if let Some(mut stdout) = child.stdout.take() {
+        stdout
+            .read_to_string(&mut output)
+            .expect("failed to read child stdout");
+    }
+    output
+}
+
+fn child_stderr(child: &mut Child) -> String {
+    let mut output = String::new();
+    if let Some(mut stderr) = child.stderr.take() {
+        stderr
+            .read_to_string(&mut output)
+            .expect("failed to read child stderr");
+    }
+    output
 }
 
 fn single_json_line(output: &str) -> Value {
