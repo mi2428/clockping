@@ -22,6 +22,34 @@ struct JsonExternalLine<'a> {
     line: &'a str,
 }
 
+#[derive(Debug, Serialize)]
+struct JsonSummary {
+    r#type: &'static str,
+    target: String,
+    sent: u64,
+    received: u64,
+    lost: u64,
+    loss_pct: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    rtt_min_ms: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    rtt_avg_ms: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    rtt_max_ms: Option<f64>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    loss_periods: Vec<JsonLossPeriod>,
+}
+
+#[derive(Debug, Serialize)]
+struct JsonLossPeriod {
+    start: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    end: Option<String>,
+    lost: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    duration_ms: Option<u64>,
+}
+
 impl Output {
     pub fn new(timestamps: TimestampFormatter, json: bool) -> Self {
         Self { timestamps, json }
@@ -118,9 +146,15 @@ impl Output {
         Ok(())
     }
 
-    pub fn print_summary(&self, summary: &Summary) {
+    pub fn print_summary(&self, summary: &Summary, quiet: bool) -> anyhow::Result<()> {
         if self.json {
-            return;
+            if quiet {
+                println!(
+                    "{}",
+                    serde_json::to_string(&self.build_json_summary(summary))?
+                );
+            }
+            return Ok(());
         }
 
         println!();
@@ -150,6 +184,64 @@ impl Output {
             for period in &summary.loss_periods {
                 print_loss_period(self, period);
             }
+        }
+        Ok(())
+    }
+
+    fn build_json_summary(&self, summary: &Summary) -> JsonSummary {
+        let lost = summary.sent.saturating_sub(summary.received);
+        let loss_pct = if summary.sent == 0 {
+            0.0
+        } else {
+            lost as f64 / summary.sent as f64 * 100.0
+        };
+        let (rtt_min_ms, rtt_avg_ms, rtt_max_ms) = summary
+            .rtt_min_avg_max()
+            .map(|(min, avg, max)| {
+                (
+                    Some(min.as_secs_f64() * 1000.0),
+                    Some(avg.as_secs_f64() * 1000.0),
+                    Some(max.as_secs_f64() * 1000.0),
+                )
+            })
+            .unwrap_or((None, None, None));
+
+        JsonSummary {
+            r#type: "summary",
+            target: summary.target.clone(),
+            sent: summary.sent,
+            received: summary.received,
+            lost,
+            loss_pct,
+            rtt_min_ms,
+            rtt_avg_ms,
+            rtt_max_ms,
+            loss_periods: summary
+                .loss_periods
+                .iter()
+                .map(|period| self.build_json_loss_period(period))
+                .collect(),
+        }
+    }
+
+    fn build_json_loss_period(&self, period: &LossPeriod) -> JsonLossPeriod {
+        let start = self
+            .timestamp(period.start)
+            .unwrap_or_else(|| period.start.to_rfc3339());
+        let (end, duration_ms) = period.end.map_or((None, None), |end| {
+            let end_text = self.timestamp(end).unwrap_or_else(|| end.to_rfc3339());
+            let duration_ms = end
+                .signed_duration_since(period.start)
+                .num_milliseconds()
+                .max(0) as u64;
+            (Some(end_text), Some(duration_ms))
+        });
+
+        JsonLossPeriod {
+            start,
+            end,
+            lost: period.lost,
+            duration_ms,
         }
     }
 }
@@ -201,5 +293,28 @@ mod tests {
     #[test]
     fn format_second_duration_as_seconds() {
         assert_eq!(format_duration(Duration::from_millis(1250)), "1.250s");
+    }
+
+    #[test]
+    fn json_summary_includes_stats() {
+        let mut summary = Summary::new("target".to_string());
+        summary.sent = 3;
+        summary.received = 2;
+        summary.rtts = vec![Duration::from_millis(10), Duration::from_millis(20)];
+
+        let output = Output::new(
+            TimestampFormatter::new(crate::timefmt::TimestampKind::None, None),
+            true,
+        );
+        let value = serde_json::to_value(output.build_json_summary(&summary)).unwrap();
+
+        assert_eq!(value["type"], "summary");
+        assert_eq!(value["target"], "target");
+        assert_eq!(value["sent"], 3);
+        assert_eq!(value["received"], 2);
+        assert_eq!(value["lost"], 1);
+        assert_eq!(value["rtt_min_ms"], 10.0);
+        assert_eq!(value["rtt_avg_ms"], 15.0);
+        assert_eq!(value["rtt_max_ms"], 20.0);
     }
 }

@@ -108,6 +108,23 @@ assert event["seq"] == 0, event
 assert event["rtt_ms"] >= 0, event
 PY
 
+json_summary_output="$(run_cmd "$bin" --timestamp-format STAMP --json tcp -q -c 1 -W 1 tcp-target:8080)"
+JSON_OUTPUT="$json_summary_output" python3 - <<'PY'
+import json
+import os
+
+lines = [line for line in os.environ["JSON_OUTPUT"].splitlines() if line.strip()]
+if len(lines) != 1:
+    raise SystemExit(f"expected exactly one JSON summary line, got {len(lines)}")
+summary = json.loads(lines[0])
+assert summary["type"] == "summary", summary
+assert summary["target"] == "tcp-target:8080", summary
+assert summary["sent"] == 1, summary
+assert summary["received"] == 1, summary
+assert summary["lost"] == 0, summary
+assert summary["rtt_min_ms"] >= 0, summary
+PY
+
 icmp_output="$(run_cmd "$bin" --timestamp none icmp -4 -c 1 -W 1 tcp-target)"
 assert_contains "$icmp_output" "icmp tcp-target ("
 assert_contains "$icmp_output" "seq=0 reply"
