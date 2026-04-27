@@ -94,6 +94,22 @@ mod tests {
         }
     }
 
+    fn sample_window_metrics() -> WindowMetrics {
+        WindowMetrics {
+            timestamp_unix_seconds: 2.0,
+            protocol: "icmp".to_owned(),
+            target: "example.com".to_owned(),
+            duration_seconds: 10.0,
+            samples: 4,
+            replies: 3,
+            lost: 1,
+            loss_pct: 25.0,
+            rtt_mean_seconds: Some(0.010),
+            rtt_min_seconds: Some(0.005),
+            rtt_max_seconds: Some(0.020),
+        }
+    }
+
     #[test]
     fn interval_metrics_render_prometheus_gauges() {
         let rendered = PrometheusEncoder::with_labels("nettest", [("site", "ci")])
@@ -134,20 +150,19 @@ mod tests {
     }
 
     #[test]
+    fn single_interval_render_matches_one_item_family_render() {
+        let metrics = sample_metrics();
+        let encoder = PrometheusEncoder::with_labels("nettest", [("site", "ci")]).unwrap();
+
+        assert_eq!(
+            encoder.encode_interval(&metrics),
+            encoder.encode_intervals(std::slice::from_ref(&metrics))
+        );
+    }
+
+    #[test]
     fn window_metrics_render_prometheus_gauges() {
-        let rendered = PrometheusEncoder::default().encode_window(&WindowMetrics {
-            timestamp_unix_seconds: 2.0,
-            protocol: "icmp".to_owned(),
-            target: "example.com".to_owned(),
-            duration_seconds: 10.0,
-            samples: 4,
-            replies: 3,
-            lost: 1,
-            loss_pct: 25.0,
-            rtt_mean_seconds: Some(0.010),
-            rtt_min_seconds: Some(0.005),
-            rtt_max_seconds: Some(0.020),
-        });
+        let rendered = PrometheusEncoder::default().encode_window(&sample_window_metrics());
 
         assert!(rendered.contains("clockping_window_duration_seconds"));
         assert!(
@@ -155,6 +170,16 @@ mod tests {
                 .contains("clockping_window_lost{protocol=\"icmp\",target=\"example.com\"} 1\n")
         );
         assert!(rendered.contains("clockping_window_rtt_mean_seconds"));
+    }
+
+    #[test]
+    fn single_window_render_matches_one_item_family_render() {
+        let metrics = sample_window_metrics();
+
+        assert_eq!(
+            render_window_prometheus(&metrics, "clockping"),
+            render_window_prometheus_many(std::slice::from_ref(&metrics), "clockping")
+        );
     }
 
     #[test]

@@ -701,6 +701,87 @@ mod tests {
     }
 
     #[test]
+    fn inline_and_separate_metrics_options_are_equivalent() {
+        let inline_args = vec![
+            "clockping".into(),
+            "--push.url=http://push.example:9091".into(),
+            "--push.job=net".into(),
+            "--push.label=scenario=sample".into(),
+            "--push.timeout=2s".into(),
+            "--push.retries=2".into(),
+            "--push.user-agent=clockping/custom".into(),
+            "--metrics.prefix=nettest".into(),
+            "--push.interval=10s".into(),
+            "--push.delete-on-exit=true".into(),
+            "--metrics.file=metrics.prom".into(),
+            "--metrics.format=prometheus".into(),
+            "--metrics.label=site=ci".into(),
+            "tcp".into(),
+            "127.0.0.1:80".into(),
+        ];
+        let separate_args = vec![
+            "clockping".into(),
+            "--push.url".into(),
+            "http://push.example:9091".into(),
+            "--push.job".into(),
+            "net".into(),
+            "--push.label".into(),
+            "scenario=sample".into(),
+            "--push.timeout".into(),
+            "2s".into(),
+            "--push.retries".into(),
+            "2".into(),
+            "--push.user-agent".into(),
+            "clockping/custom".into(),
+            "--metrics.prefix".into(),
+            "nettest".into(),
+            "--push.interval".into(),
+            "10s".into(),
+            "--push.delete-on-exit".into(),
+            "--metrics.file".into(),
+            "metrics.prom".into(),
+            "--metrics.format".into(),
+            "prometheus".into(),
+            "--metrics.label".into(),
+            "site=ci".into(),
+            "tcp".into(),
+            "127.0.0.1:80".into(),
+        ];
+
+        let (inline_options, inline_cli) =
+            extract_metrics_options_with_env(inline_args, |_| None).unwrap();
+        let (separate_options, separate_cli) =
+            extract_metrics_options_with_env(separate_args, |_| None).unwrap();
+
+        assert_eq!(
+            metrics_options_snapshot(&inline_options),
+            metrics_options_snapshot(&separate_options)
+        );
+        assert_eq!(inline_cli, separate_cli);
+        assert_eq!(inline_cli, ["clockping", "tcp", "127.0.0.1:80"]);
+    }
+
+    #[test]
+    fn inline_push_delete_on_exit_can_override_env_default() {
+        let args = vec![
+            "clockping".into(),
+            "--push.delete-on-exit=false".into(),
+            "tcp".into(),
+            "127.0.0.1:80".into(),
+        ];
+
+        let (options, cli) = extract_metrics_options_with_env(args, |key| match key {
+            "CLOCKPING_PUSH_URL" => Some("http://push.example:9091".to_owned()),
+            "CLOCKPING_PUSH_DELETE_ON_EXIT" => Some("true".to_owned()),
+            _ => None,
+        })
+        .unwrap();
+
+        assert!(!options.push_delete_on_exit);
+        assert_eq!(cli, ["clockping", "tcp", "127.0.0.1:80"]);
+    }
+
+    #[test]
     fn clockping_environment_overrides_iperf3_aliases() {
         let args = vec!["clockping".into(), "tcp".into(), "127.0.0.1:80".into()];
 
@@ -852,5 +933,38 @@ mod tests {
             assert!(!parse_bool_option("--push.delete-on-exit", value).unwrap());
         }
         assert!(parse_bool_option("--push.delete-on-exit", "maybe").is_err());
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct MetricsOptionsSnapshot {
+        push_url: Option<String>,
+        push_job: String,
+        push_labels: Vec<(String, String)>,
+        push_timeout: Duration,
+        push_retries: u32,
+        push_user_agent: String,
+        metrics_prefix: String,
+        push_interval: Option<Duration>,
+        push_delete_on_exit: bool,
+        metrics_file: Option<PathBuf>,
+        metrics_format: MetricsFileFormat,
+        metrics_labels: Vec<(String, String)>,
+    }
+
+    fn metrics_options_snapshot(options: &MetricsOptions) -> MetricsOptionsSnapshot {
+        MetricsOptionsSnapshot {
+            push_url: options.push_url.as_ref().map(|url| url.as_str().to_owned()),
+            push_job: options.push_job.clone(),
+            push_labels: options.push_labels.clone(),
+            push_timeout: options.push_timeout,
+            push_retries: options.push_retries,
+            push_user_agent: options.push_user_agent.clone(),
+            metrics_prefix: options.metrics_prefix.clone(),
+            push_interval: options.push_interval,
+            push_delete_on_exit: options.push_delete_on_exit,
+            metrics_file: options.metrics_file.clone(),
+            metrics_format: options.metrics_format,
+            metrics_labels: options.metrics_labels.clone(),
+        }
     }
 }
