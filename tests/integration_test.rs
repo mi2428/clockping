@@ -252,6 +252,58 @@ fn writes_prometheus_metrics_file_with_labels() {
 }
 
 #[test]
+fn tcp_probes_multiple_targets() {
+    let first = spawn_tcp_acceptor(1);
+    let second = spawn_tcp_acceptor(1);
+
+    let output = run_clockping(&[
+        "--timestamp",
+        "none",
+        "tcp",
+        "-c",
+        "1",
+        "-W",
+        "1",
+        &first,
+        &second,
+    ]);
+
+    assert_contains(&output, &format!("tcp {first} seq=0 reply"));
+    assert_contains(&output, &format!("tcp {second} seq=0 reply"));
+    assert_contains(&output, &format!("--- {first} clockping statistics ---"));
+    assert_contains(&output, &format!("--- {second} clockping statistics ---"));
+}
+
+#[test]
+fn prometheus_metrics_file_includes_multiple_targets() {
+    let first = spawn_tcp_acceptor(1);
+    let second = spawn_tcp_acceptor(1);
+    let metrics_file = temp_metrics_path("prom");
+    let metrics_file_arg = metrics_file.to_string_lossy();
+
+    let output = run_clockping(&[
+        "--metrics.file",
+        metrics_file_arg.as_ref(),
+        "--metrics.format",
+        "prometheus",
+        "tcp",
+        "-c",
+        "1",
+        "-W",
+        "1",
+        &first,
+        &second,
+    ]);
+
+    assert_contains(&output, &format!("tcp {first}"));
+    assert_contains(&output, &format!("tcp {second}"));
+    let metrics = fs::read_to_string(&metrics_file).expect("read metrics file");
+    assert_contains(&metrics, &format!("target=\"{first}\""));
+    assert_contains(&metrics, &format!("target=\"{second}\""));
+    let _ = fs::remove_file(metrics_file);
+}
+
+#[test]
 fn pushes_prometheus_metrics_to_pushgateway() {
     let target = spawn_tcp_acceptor(1);
     let (push_url, requests) = spawn_pushgateway_capture();
@@ -284,6 +336,45 @@ fn pushes_prometheus_metrics_to_pushgateway() {
         "clockping_probe_sent{protocol=\"tcp\",target=\"",
     );
     assert_contains(&request.body, "clockping_probe_up");
+}
+
+#[test]
+fn pushgateway_metrics_include_multiple_targets() {
+    let first = spawn_tcp_acceptor(1);
+    let second = spawn_tcp_acceptor(1);
+    let (push_url, requests) = spawn_pushgateway_capture_n(2);
+
+    let output = run_clockping(&[
+        "--push.url",
+        &push_url,
+        "tcp",
+        "-c",
+        "1",
+        "-W",
+        "1",
+        &first,
+        &second,
+    ]);
+
+    assert_contains(&output, &format!("tcp {first}"));
+    assert_contains(&output, &format!("tcp {second}"));
+    let captured = (0..2)
+        .map(|_| {
+            requests
+                .recv_timeout(Duration::from_secs(3))
+                .expect("Pushgateway request was not captured")
+        })
+        .collect::<Vec<_>>();
+    let body = captured
+        .iter()
+        .map(|request| request.body.as_str())
+        .find(|body| {
+            body.contains(&format!("target=\"{first}\""))
+                && body.contains(&format!("target=\"{second}\""))
+        })
+        .unwrap_or_else(|| panic!("missing combined multi-target Pushgateway body: {captured:?}"));
+    assert_contains(body, "clockping_probe_sent");
+    assert_contains(body, "clockping_probe_up");
 }
 
 #[test]
@@ -723,6 +814,10 @@ struct CapturedHttpRequest {
 }
 
 fn spawn_pushgateway_capture() -> (String, mpsc::Receiver<CapturedHttpRequest>) {
+    spawn_pushgateway_capture_n(1)
+}
+
+fn spawn_pushgateway_capture_n(count: usize) -> (String, mpsc::Receiver<CapturedHttpRequest>) {
     let listener = TcpListener::bind("127.0.0.1:0").expect("failed to bind Pushgateway capture");
     let addr = listener
         .local_addr()
@@ -730,46 +825,55 @@ fn spawn_pushgateway_capture() -> (String, mpsc::Receiver<CapturedHttpRequest>) 
     let (tx, rx) = mpsc::channel();
 
     thread::spawn(move || {
-        let Ok((mut stream, _peer)) = listener.accept() else {
-            return;
-        };
-        stream
-            .set_read_timeout(Some(Duration::from_secs(3)))
-            .expect("failed to set Pushgateway capture read timeout");
-
-        let mut buffer = Vec::new();
-        let mut chunk = [0_u8; 1024];
-        let header_end = loop {
-            match stream.read(&mut chunk) {
-                Ok(0) => return,
-                Ok(read) => {
-                    buffer.extend_from_slice(&chunk[..read]);
-                    if let Some(index) = find_subsequence(&buffer, b"\r\n\r\n") {
-                        break index + 4;
-                    }
-                }
-                Err(_) => return,
-            }
-        };
-
-        let headers = String::from_utf8_lossy(&buffer[..header_end]).to_string();
-        let content_length = headers.lines().find_map(parse_content_length).unwrap_or(0);
-        while buffer.len() < header_end + content_length {
-            match stream.read(&mut chunk) {
-                Ok(0) => break,
-                Ok(read) => buffer.extend_from_slice(&chunk[..read]),
-                Err(_) => break,
-            }
+        for _ in 0..count {
+            let Ok((stream, _peer)) = listener.accept() else {
+                return;
+            };
+            let Some(request) = capture_pushgateway_request(stream) else {
+                return;
+            };
+            let _ = tx.send(request);
         }
-
-        let body_end = (header_end + content_length).min(buffer.len());
-        let body = String::from_utf8_lossy(&buffer[header_end..body_end]).to_string();
-        let request_line = headers.lines().next().unwrap_or_default().to_string();
-        let _ = stream.write_all(b"HTTP/1.1 202 Accepted\r\nContent-Length: 0\r\n\r\n");
-        let _ = tx.send(CapturedHttpRequest { request_line, body });
     });
 
     (format!("http://{addr}"), rx)
+}
+
+fn capture_pushgateway_request(mut stream: TcpStream) -> Option<CapturedHttpRequest> {
+    stream
+        .set_read_timeout(Some(Duration::from_secs(3)))
+        .expect("failed to set Pushgateway capture read timeout");
+
+    let mut buffer = Vec::new();
+    let mut chunk = [0_u8; 1024];
+    let header_end = loop {
+        match stream.read(&mut chunk) {
+            Ok(0) => return None,
+            Ok(read) => {
+                buffer.extend_from_slice(&chunk[..read]);
+                if let Some(index) = find_subsequence(&buffer, b"\r\n\r\n") {
+                    break index + 4;
+                }
+            }
+            Err(_) => return None,
+        }
+    };
+
+    let headers = String::from_utf8_lossy(&buffer[..header_end]).to_string();
+    let content_length = headers.lines().find_map(parse_content_length).unwrap_or(0);
+    while buffer.len() < header_end + content_length {
+        match stream.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(read) => buffer.extend_from_slice(&chunk[..read]),
+            Err(_) => break,
+        }
+    }
+
+    let body_end = (header_end + content_length).min(buffer.len());
+    let body = String::from_utf8_lossy(&buffer[header_end..body_end]).to_string();
+    let request_line = headers.lines().next().unwrap_or_default().to_string();
+    let _ = stream.write_all(b"HTTP/1.1 202 Accepted\r\nContent-Length: 0\r\n\r\n");
+    Some(CapturedHttpRequest { request_line, body })
 }
 
 fn parse_content_length(line: &str) -> Option<usize> {
