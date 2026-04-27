@@ -200,7 +200,7 @@ publish_github_release() {
   run gh release create "${tag}" \
     --repo "${repository}" \
     --target "${release_commit}" \
-    --title "${APP} ${tag}" \
+    --title "${tag}" \
     --generate-notes \
     "${prerelease_flag[@]}" \
     "${assets[@]}"
