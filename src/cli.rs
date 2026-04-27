@@ -4,6 +4,35 @@ use clap::{Args, Parser, Subcommand};
 
 use crate::{timefmt::TimestampKind, version};
 
+const ICMP_HELP: &str = "\
+ICMP echo ping. Native by default; use --pinger to wrap system ping
+
+Usage: clockping icmp [OPTIONS] <DESTINATION>
+       clockping icmp --pinger <PROGRAM> [PING_ARGS]...
+
+Arguments:
+  <DESTINATION>   Destination host or IP address
+  [PING_ARGS]...  With --pinger, arguments passed unchanged to the external command
+
+Options:
+  -4                                      Use IPv4 only
+  -6                                      Use IPv6 only
+  -c, --count <COUNT>                     Stop after count probes. Default is to run until interrupted
+  -i, --interval <SECONDS>                Seconds between probes. Fractions are accepted, e.g. 0.2 [default: 1]
+  -W, --timeout <SECONDS>                 Per-probe timeout in seconds [default: 1]
+  -w, --deadline <SECONDS>                Stop the command after this many seconds
+  -s, --size <BYTES>                      Number of payload bytes [default: 56]
+  -t, --ttl <TTL>                         IP TTL / hop limit
+  -I, --interface-or-source <INTERFACE_OR_SOURCE>
+                                          Interface name or source address
+  -n, --numeric                           Numeric output only. Accepted for ping compatibility
+  -q, --quiet                             Suppress per-probe output and only print the summary
+  -D, --timestamp                         Accepted for ping compatibility. clockping timestamps every event by default
+  -O, --report-outstanding                Report outstanding reply before sending next packet
+      --pinger <PROGRAM>                  Run an external ping-compatible command instead of native ICMP
+  -h, --help                              Print help
+";
+
 #[derive(Debug, Parser)]
 #[command(
     name = "clockping",
@@ -50,14 +79,7 @@ pub struct CompletionCommand {
 }
 
 #[derive(Debug, Args)]
-#[command(
-    after_help = "Native ICMP options are parsed after this raw argv layer:
-  -4 -6 -c <count> -i <seconds> -W <seconds> -w <seconds>
-  -s <bytes> -t <ttl> -I <interface-or-source> -n -q -D -O <destination>
-
-External wrapper mode:
-  clockping icmp --pinger=/usr/bin/ping [PING_ARGS...]"
-)]
+#[command(override_help = ICMP_HELP)]
 pub struct IcmpCommand {
     /// ICMP native options, or system ping argv when --pinger is specified.
     #[arg(trailing_var_arg = true, allow_hyphen_values = true)]

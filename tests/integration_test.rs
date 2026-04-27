@@ -153,6 +153,31 @@ fn completion_subcommand_generates_bash_script() {
 }
 
 #[test]
+fn icmp_help_lists_native_options() {
+    for args in [["icmp", "--help"], ["help", "icmp"]] {
+        let output = run_clockping_raw(&args);
+        let combined = combined_output(&output);
+
+        assert!(
+            output.status.success(),
+            "icmp help failed with status {}\n{}",
+            output.status,
+            combined
+        );
+        assert_contains(&combined, "Usage: clockping icmp [OPTIONS] <DESTINATION>");
+        assert_contains(&combined, "-c, --count <COUNT>");
+        assert_contains(&combined, "-i, --interval <SECONDS>");
+        assert_contains(&combined, "-W, --timeout <SECONDS>");
+        assert_contains(&combined, "-I, --interface-or-source <INTERFACE_OR_SOURCE>");
+        assert_contains(&combined, "--pinger <PROGRAM>");
+        assert!(
+            !combined.contains("raw argv layer"),
+            "help should describe user-facing options, not parser internals\n{combined}"
+        );
+    }
+}
+
+#[test]
 fn version_includes_build_metadata() {
     let output = run_clockping_raw(&["--version"]);
     let combined = combined_output(&output);
