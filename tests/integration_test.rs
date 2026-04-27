@@ -11,6 +11,7 @@ use serde_json::Value;
 // This Docker integration test exercises clockping's protocol-facing paths
 // against real containers on one Compose network:
 // - TCP connect and HTTP HEAD use Python's http.server as the endpoint;
+// - transient TCP verifies that target-down probes keep producing timestamped events;
 // - native ICMP and external ping verify both ICMP engines inside the network;
 // - GTPv1-U, GTPv1-C, and GTPv2-C use the small Python echo responder.
 // It intentionally remains one Rust test so Compose setup is paid once while
@@ -174,6 +175,7 @@ fn version_includes_build_metadata() {
 #[ignore = "requires docker compose test network"]
 fn docker_compose_e2e() {
     wait_for_tcp("tcp-target", 8080);
+    wait_for_tcp("transient-tcp-target", 8081);
     wait_for_gtp(GtpMode::V1, "gtp-v1u-target", 2152);
     wait_for_gtp(GtpMode::V1, "gtp-v1c-target", 2123);
     wait_for_gtp(GtpMode::V2, "gtp-v2c-target", 2123);
@@ -246,6 +248,44 @@ fn docker_compose_e2e() {
             .as_f64()
             .is_some_and(|value| value >= 0.0)
     );
+
+    let down_output = run_clockping(&[
+        "--timestamp-format",
+        "STAMP",
+        "--json",
+        "tcp",
+        "-c",
+        "4",
+        "-i",
+        "0.2",
+        "-W",
+        "0.1",
+        "transient-tcp-target:8081",
+    ]);
+    let down_events = json_lines(&down_output);
+    assert_eq!(
+        down_events.len(),
+        4,
+        "clockping should keep emitting events after the target goes down: {down_output}"
+    );
+    assert_eq!(down_events[0]["status"], "reply");
+    assert_eq!(down_events[0]["ts"], "STAMP");
+
+    let unavailable_events = down_events
+        .iter()
+        .filter(|event| event["status"] == "error" || event["status"] == "timeout")
+        .collect::<Vec<_>>();
+    assert!(
+        !unavailable_events.is_empty(),
+        "expected timestamped down events after target listener stopped: {down_output}"
+    );
+    assert!(
+        unavailable_events
+            .iter()
+            .all(|event| event["ts"] == "STAMP"),
+        "down events should carry clockping timestamps: {down_output}"
+    );
+    assert_eq!(down_events[3]["seq"], 3);
 
     let icmp_output = run_clockping(&[
         "--timestamp",
@@ -450,12 +490,23 @@ fn child_stderr(child: &mut Child) -> String {
 }
 
 fn single_json_line(output: &str) -> Value {
-    let lines = output
-        .lines()
-        .filter(|line| !line.trim().is_empty())
-        .collect::<Vec<_>>();
+    let lines = output_lines(output);
     assert_eq!(lines.len(), 1, "expected exactly one JSON line: {output}");
     serde_json::from_str(lines[0]).expect("invalid JSON output")
+}
+
+fn json_lines(output: &str) -> Vec<Value> {
+    output_lines(output)
+        .into_iter()
+        .map(|line| serde_json::from_str(line).expect("invalid JSON output"))
+        .collect()
+}
+
+fn output_lines(output: &str) -> Vec<&str> {
+    output
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .collect()
 }
 
 fn assert_contains(haystack: &str, needle: &str) {

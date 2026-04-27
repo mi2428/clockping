@@ -37,7 +37,7 @@ RUN apt-get update \
 WORKDIR /work
 COPY --from=integration-build /out/clockping /usr/local/bin/clockping
 COPY --from=integration-build /out/clockping-integration-test /usr/local/bin/clockping-integration-test
-COPY tests/e2e/gtp_echo_server.py tests/e2e/gtp_echo_server.py
+COPY tests/e2e/ tests/e2e/
 
 ENV CLOCKPING_BIN=/usr/local/bin/clockping
 CMD ["/usr/local/bin/clockping-integration-test", "--ignored", "--nocapture"]

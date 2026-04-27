@@ -6,6 +6,17 @@ services:
     <<: *clockping-test-image
     command: ["python3", "-u", "-m", "http.server", "8080", "--bind", "0.0.0.0"]
 
+  transient-tcp-target:
+    <<: *clockping-test-image
+    command:
+      - python3
+      - -u
+      - tests/e2e/transient_tcp_server.py
+      - --port
+      - "8081"
+      - --accepts-before-down
+      - "2"
+
   gtp-v1u-target:
     <<: *clockping-test-image
     command: ["python3", "-u", "tests/e2e/gtp_echo_server.py", "--mode", "v1", "--port", "2152"]
@@ -25,6 +36,7 @@ services:
       target: integration-test
     depends_on:
       - tcp-target
+      - transient-tcp-target
       - gtp-v1u-target
       - gtp-v1c-target
       - gtp-v2c-target
