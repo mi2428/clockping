@@ -79,6 +79,7 @@ ARG CLOCKPING_GIT_DESCRIBE
 
 LABEL org.opencontainers.image.created="${CLOCKPING_BUILD_DATE}" \
       org.opencontainers.image.revision="${CLOCKPING_GIT_COMMIT}" \
+      org.opencontainers.image.source="https://github.com/mi2428/clockping" \
       org.opencontainers.image.version="${CLOCKPING_GIT_DESCRIBE}" \
       org.opencontainers.image.clockping.commit-date="${CLOCKPING_GIT_COMMIT_DATE}"
 

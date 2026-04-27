@@ -139,7 +139,6 @@ build_and_push_docker_image() {
     --platform "${platforms}" \
     --target release \
     --push \
-    --label "org.opencontainers.image.source=https://github.com/${repository}" \
     --label "org.opencontainers.image.revision=${git_commit}" \
     --label "org.opencontainers.image.version=${tag}" \
     --build-arg "CLOCKPING_BUILD_DATE=${build_date}" \
