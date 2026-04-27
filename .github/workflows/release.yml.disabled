@@ -1,3 +1,8 @@
+# Temporarily disabled to avoid spending GitHub Actions billing/compute on
+# release builds. Use `make release TAG=vX.Y.Z` locally instead. Rename this
+# file back to `release.yml` if release publishing is moved back to GitHub
+# Actions.
+#
 # This workflow follows the cargo-dist layout used by ../iperf3-rs, with
 # crates.io publishing intentionally omitted. Releases are driven by version
 # tags and publish GitHub artifacts plus a Homebrew formula.

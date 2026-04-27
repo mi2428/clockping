@@ -1,3 +1,8 @@
+# Temporarily disabled to avoid spending GitHub Actions billing/compute on
+# release image builds. Use `make release TAG=vX.Y.Z` locally instead. Rename
+# this file back to `ghcr.yml` if image publishing is moved back to GitHub
+# Actions.
+#
 name: GHCR
 
 on:
