@@ -44,6 +44,11 @@ CMD ["/usr/local/bin/clockping-integration-test", "--ignored", "--nocapture"]
 
 FROM ${RELEASE_BUILD_IMAGE}:${RELEASE_BUILD_IMAGE_TAG} AS release-build
 
+ARG CLOCKPING_BUILD_DATE
+ARG CLOCKPING_GIT_COMMIT
+ARG CLOCKPING_GIT_COMMIT_DATE
+ARG CLOCKPING_GIT_DESCRIBE
+
 # Keep the scratch release image independent of an OS CA bundle. HTTPS support
 # uses embedded Rustls/webpki roots rather than copying /etc/ssl/certs.
 # hadolint ignore=DL3018
@@ -55,6 +60,10 @@ COPY . .
 RUN --mount=type=cache,id=clockping-cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,id=clockping-cargo-git,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,id=clockping-release-target,target=/workspace/target,sharing=locked \
+    CLOCKPING_BUILD_DATE="${CLOCKPING_BUILD_DATE}" \
+    CLOCKPING_GIT_COMMIT="${CLOCKPING_GIT_COMMIT}" \
+    CLOCKPING_GIT_COMMIT_DATE="${CLOCKPING_GIT_COMMIT_DATE}" \
+    CLOCKPING_GIT_DESCRIBE="${CLOCKPING_GIT_DESCRIBE}" \
     cargo build --release --locked \
  && mkdir -p /out/rootfs/tmp \
  && install -m 0755 target/release/clockping /out/clockping \

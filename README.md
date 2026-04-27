@@ -41,6 +41,13 @@ clockping completion zsh
 clockping completion fish
 ```
 
+## Version metadata
+
+`clockping --version` includes the package version, git describe, commit,
+commit date, build date, build profile, target, and host. `clockping -V` keeps
+the short package-version output for scripts that only need the semantic
+version.
+
 ## ICMP modes
 
 `clockping icmp` uses native ICMP by default. It currently accepts the common

@@ -4,6 +4,7 @@ mod output;
 mod protocol;
 mod runner;
 mod timefmt;
+mod version;
 
 use std::{
     io::{self, Write},

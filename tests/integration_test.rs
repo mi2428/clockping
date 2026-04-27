@@ -151,6 +151,26 @@ fn completion_subcommand_generates_bash_script() {
 }
 
 #[test]
+fn version_includes_build_metadata() {
+    let output = run_clockping_raw(&["--version"]);
+    let combined = combined_output(&output);
+
+    assert!(
+        output.status.success(),
+        "version failed with status {}\n{}",
+        output.status,
+        combined
+    );
+    assert_contains(&combined, "clockping ");
+    assert_contains(&combined, "(git ");
+    assert_contains(&combined, "commit ");
+    assert_contains(&combined, "commit date ");
+    assert_contains(&combined, "built ");
+    assert_contains(&combined, " on ");
+    assert_contains(&combined, "(host ");
+}
+
+#[test]
 #[ignore = "requires docker compose test network"]
 fn docker_compose_e2e() {
     wait_for_tcp("tcp-target", 8080);

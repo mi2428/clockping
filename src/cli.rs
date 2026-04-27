@@ -2,10 +2,15 @@ use std::{ffi::OsString, time::Duration};
 
 use clap::{Args, Parser, Subcommand};
 
-use crate::timefmt::TimestampKind;
+use crate::{timefmt::TimestampKind, version};
 
 #[derive(Debug, Parser)]
-#[command(name = "clockping", version, about = "Timestamped generic pinger")]
+#[command(
+    name = "clockping",
+    version,
+    long_version = version::LONG_VERSION,
+    about = "Timestamped generic pinger"
+)]
 pub struct Cli {
     /// Timestamp preset for human-readable output.
     #[arg(long, value_enum, default_value_t = TimestampKind::Local)]
