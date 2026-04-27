@@ -1,6 +1,6 @@
 # clockping
 
-Timestamped generic pinger CLI.
+A multi-protocol, multi-target pinger for watching hosts go dark.
 
 ## Examples
 

@@ -39,7 +39,7 @@ Options:
     name = "clockping",
     version,
     long_version = version::LONG_VERSION,
-    about = "Timestamped generic pinger"
+    about = "A multi-protocol, multi-target pinger for watching hosts go dark"
 )]
 pub struct Cli {
     /// Timestamp preset for human-readable output.
