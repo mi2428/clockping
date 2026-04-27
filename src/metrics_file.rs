@@ -66,6 +66,25 @@ impl MetricsFileSink {
         }
     }
 
+    pub fn write_intervals(&self, metrics: &[ProbeMetrics]) -> anyhow::Result<()> {
+        match self.format {
+            MetricsFileFormat::Jsonl => {
+                for metrics in metrics {
+                    self.append_jsonl("interval", metrics)?;
+                }
+                Ok(())
+            }
+            MetricsFileFormat::Prometheus => atomic_write(
+                &self.path,
+                self.encoder.encode_intervals(metrics).as_bytes(),
+            ),
+        }
+    }
+
+    pub fn writes_prometheus_snapshot(&self) -> bool {
+        self.format == MetricsFileFormat::Prometheus
+    }
+
     #[allow(dead_code)]
     pub fn write_window(&self, metrics: &WindowMetrics) -> anyhow::Result<()> {
         match self.format {
@@ -203,6 +222,29 @@ mod tests {
         assert!(output.contains("nettest_probe_sent{site=\"ci\",protocol=\"tcp\""));
         assert!(output.contains("nettest_probe_sequence"));
         assert!(!output.contains(r#""event":"interval""#));
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn prometheus_format_writes_multiple_target_snapshot() {
+        let path = temp_path("prom");
+        let sink = MetricsFileSink::with_prefix_and_labels(
+            &path,
+            MetricsFileFormat::Prometheus,
+            "nettest",
+            [("site", "ci")],
+        )
+        .unwrap();
+        let mut first = sample_metrics(0);
+        first.target = "one:443".to_owned();
+        let mut second = sample_metrics(1);
+        second.target = "two:443".to_owned();
+
+        sink.write_intervals(&[first, second]).unwrap();
+
+        let output = fs::read_to_string(&path).unwrap();
+        assert!(output.contains("target=\"one:443\""));
+        assert!(output.contains("target=\"two:443\""));
         let _ = fs::remove_file(path);
     }
 

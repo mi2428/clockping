@@ -1,6 +1,11 @@
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::{
+    collections::BTreeMap,
+    sync::Arc,
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+};
 
 use serde::Serialize;
+use tokio::sync::Mutex;
 
 use crate::{
     event::{ProbeEvent, ProbeOutcome},
@@ -8,6 +13,8 @@ use crate::{
     pushgateway::PushGateway,
     runner::Summary,
 };
+
+pub type SharedMetricsReporter = Arc<Mutex<MetricsReporter>>;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ProbeMetrics {
@@ -91,8 +98,9 @@ pub struct WindowMetrics {
 pub struct MetricsReporter {
     pushgateway: Option<PushGatewaySink>,
     file: Option<MetricsFileSink>,
-    window: Vec<ProbeMetrics>,
-    window_started: Option<Instant>,
+    latest_intervals: BTreeMap<MetricsKey, ProbeMetrics>,
+    latest_windows: BTreeMap<MetricsKey, WindowMetrics>,
+    windows: BTreeMap<MetricsKey, WindowState>,
 }
 
 impl MetricsReporter {
@@ -100,9 +108,14 @@ impl MetricsReporter {
         Self {
             pushgateway,
             file,
-            window: Vec::new(),
-            window_started: None,
+            latest_intervals: BTreeMap::new(),
+            latest_windows: BTreeMap::new(),
+            windows: BTreeMap::new(),
         }
+    }
+
+    pub fn shared(self) -> SharedMetricsReporter {
+        Arc::new(Mutex::new(self))
     }
 
     pub fn is_empty(&self) -> bool {
@@ -110,8 +123,16 @@ impl MetricsReporter {
     }
 
     pub async fn record(&mut self, metrics: ProbeMetrics) -> anyhow::Result<()> {
+        let key = MetricsKey::from_probe(&metrics);
+        self.latest_intervals.insert(key, metrics.clone());
+        let interval_snapshot = self.latest_intervals.values().cloned().collect::<Vec<_>>();
+
         if let Some(file) = &self.file {
-            file.write_interval(&metrics)?;
+            if file.writes_prometheus_snapshot() {
+                file.write_intervals(&interval_snapshot)?;
+            } else {
+                file.write_interval(&metrics)?;
+            }
         }
 
         if self
@@ -122,7 +143,7 @@ impl MetricsReporter {
         {
             self.record_window(metrics).await;
         } else if let Some(pushgateway) = &self.pushgateway {
-            pushgateway.push_interval(&metrics).await;
+            pushgateway.push_intervals(&interval_snapshot).await;
         }
 
         Ok(())
@@ -135,7 +156,7 @@ impl MetricsReporter {
             .and_then(|pushgateway| pushgateway.interval)
             .is_some()
         {
-            self.flush_window().await;
+            self.flush_all_windows().await;
         }
         if let Some(pushgateway) = &self.pushgateway {
             pushgateway.delete_on_finish().await;
@@ -144,29 +165,70 @@ impl MetricsReporter {
 
     async fn record_window(&mut self, metrics: ProbeMetrics) {
         let now = Instant::now();
-        if let (Some(started), Some(pushgateway)) = (self.window_started, &self.pushgateway)
+        let key = MetricsKey::from_probe(&metrics);
+        let mut flush_key = None;
+        if let Some(window) = self.windows.get(&key)
+            && let Some(pushgateway) = &self.pushgateway
             && let Some(interval) = pushgateway.interval
-            && now.duration_since(started) >= interval
+            && now.duration_since(window.started) >= interval
         {
-            self.flush_window().await;
+            flush_key = Some(key.clone());
+        }
+        if let Some(key) = flush_key {
+            self.flush_window(&key).await;
         }
 
-        if self.window.is_empty() {
-            self.window_started = Some(now);
-        }
-        self.window.push(metrics);
+        self.windows
+            .entry(key)
+            .or_insert_with(|| WindowState {
+                started: now,
+                samples: Vec::new(),
+            })
+            .samples
+            .push(metrics);
     }
 
-    async fn flush_window(&mut self) {
-        let Some(metrics) = aggregate_window(&self.window) else {
+    async fn flush_window(&mut self, key: &MetricsKey) {
+        let Some(window) = self.windows.remove(key) else {
             return;
         };
+        let Some(metrics) = aggregate_window(&window.samples) else {
+            return;
+        };
+        self.latest_windows.insert(key.clone(), metrics);
         if let Some(pushgateway) = &self.pushgateway {
-            pushgateway.push_window(&metrics).await;
+            let snapshot = self.latest_windows.values().cloned().collect::<Vec<_>>();
+            pushgateway.push_windows(&snapshot).await;
         }
-        self.window.clear();
-        self.window_started = None;
     }
+
+    async fn flush_all_windows(&mut self) {
+        let keys = self.windows.keys().cloned().collect::<Vec<_>>();
+        for key in keys {
+            self.flush_window(&key).await;
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+struct MetricsKey {
+    protocol: String,
+    target: String,
+}
+
+impl MetricsKey {
+    fn from_probe(metrics: &ProbeMetrics) -> Self {
+        Self {
+            protocol: metrics.protocol.clone(),
+            target: metrics.target.clone(),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct WindowState {
+    started: Instant,
+    samples: Vec<ProbeMetrics>,
 }
 
 #[derive(Debug)]
@@ -180,14 +242,14 @@ impl PushGatewaySink {
         Self { sink, interval }
     }
 
-    async fn push_interval(&self, metrics: &ProbeMetrics) {
-        if let Err(error) = self.sink.push(metrics).await {
+    async fn push_intervals(&self, metrics: &[ProbeMetrics]) {
+        if let Err(error) = self.sink.push_many(metrics).await {
             eprintln!("failed to push metrics: {error:#}");
         }
     }
 
-    async fn push_window(&self, metrics: &WindowMetrics) {
-        if let Err(error) = self.sink.push_window(metrics).await {
+    async fn push_windows(&self, metrics: &[WindowMetrics]) {
+        if let Err(error) = self.sink.push_windows(metrics).await {
             eprintln!("failed to push window metrics: {error:#}");
         }
     }

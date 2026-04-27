@@ -4,7 +4,10 @@ use reqwest::{Client, StatusCode, Url};
 
 use crate::{
     metrics::{ProbeMetrics, WindowMetrics},
-    prometheus::{render_interval_prometheus, render_window_prometheus, validate_metric_prefix},
+    prometheus::{
+        render_interval_prometheus, render_interval_prometheus_many, render_window_prometheus,
+        render_window_prometheus_many, validate_metric_prefix,
+    },
 };
 
 const PUSH_RETRY_BASE_DELAY: Duration = Duration::from_millis(100);
@@ -103,13 +106,25 @@ impl PushGateway {
         })
     }
 
+    #[allow(dead_code)]
     pub async fn push(&self, metrics: &ProbeMetrics) -> anyhow::Result<()> {
         let body = render_interval_prometheus(metrics, &self.metric_prefix);
         self.push_body(&body).await
     }
 
+    pub async fn push_many(&self, metrics: &[ProbeMetrics]) -> anyhow::Result<()> {
+        let body = render_interval_prometheus_many(metrics, &self.metric_prefix);
+        self.push_body(&body).await
+    }
+
+    #[allow(dead_code)]
     pub async fn push_window(&self, metrics: &WindowMetrics) -> anyhow::Result<()> {
         let body = render_window_prometheus(metrics, &self.metric_prefix);
+        self.push_body(&body).await
+    }
+
+    pub async fn push_windows(&self, metrics: &[WindowMetrics]) -> anyhow::Result<()> {
+        let body = render_window_prometheus_many(metrics, &self.metric_prefix);
         self.push_body(&body).await
     }
 

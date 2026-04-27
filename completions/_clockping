@@ -88,7 +88,7 @@ _arguments "${_arguments_options[@]}" : \
 '--push.delete-on-exit[Delete this Pushgateway grouping key after the run exits]' \
 '-h[Print help]' \
 '--help[Print help]' \
-':target -- Target as host\:port:_default' \
+'*::targets -- Targets as host\:port. Repeat for multiple targets:_default' \
 && ret=0
 ;;
 (http)
@@ -126,7 +126,7 @@ _arguments "${_arguments_options[@]}" : \
 '--push.delete-on-exit[Delete this Pushgateway grouping key after the run exits]' \
 '-h[Print help]' \
 '--help[Print help]' \
-':target -- Target URL. If no scheme is given, http\:// is assumed:_default' \
+'*::targets -- Target URLs. If no scheme is given, http\:// is assumed:_default' \
 && ret=0
 ;;
 (gtp)
@@ -182,7 +182,7 @@ _arguments "${_arguments_options[@]}" : \
 '--push.delete-on-exit[Delete this Pushgateway grouping key after the run exits]' \
 '-h[Print help]' \
 '--help[Print help]' \
-':target -- Target host or IP address:_default' \
+'*::targets -- Target hosts or IP addresses:_default' \
 && ret=0
 ;;
 (v1c)
@@ -212,7 +212,7 @@ _arguments "${_arguments_options[@]}" : \
 '--push.delete-on-exit[Delete this Pushgateway grouping key after the run exits]' \
 '-h[Print help]' \
 '--help[Print help]' \
-':target -- Target host or IP address:_default' \
+'*::targets -- Target hosts or IP addresses:_default' \
 && ret=0
 ;;
 (v2c)
@@ -242,7 +242,7 @@ _arguments "${_arguments_options[@]}" : \
 '--push.delete-on-exit[Delete this Pushgateway grouping key after the run exits]' \
 '-h[Print help]' \
 '--help[Print help]' \
-':target -- Target host or IP address:_default' \
+'*::targets -- Target hosts or IP addresses:_default' \
 && ret=0
 ;;
 (help)

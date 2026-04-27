@@ -7,12 +7,12 @@ use crate::{timefmt::TimestampKind, version};
 const ICMP_HELP: &str = "\
 ICMP echo ping. Native by default; use --pinger to wrap system ping
 
-Usage: clockping icmp [OPTIONS] <DESTINATION>
+Usage: clockping icmp [OPTIONS] <DESTINATION>...
        clockping icmp --pinger <PROGRAM> [PING_ARGS]...
 
 Arguments:
-  <DESTINATION>   Destination host or IP address
-  [PING_ARGS]...  With --pinger, arguments passed unchanged to the external command
+  <DESTINATION>...  Destination host or IP address. Repeat for multiple targets
+  [PING_ARGS]...    With --pinger, arguments passed unchanged to the external command
 
 Options:
   -4                                      Use IPv4 only
@@ -164,8 +164,9 @@ pub struct TcpCommand {
     #[arg(short = 'q', long)]
     pub quiet: bool,
 
-    /// Target as host:port.
-    pub target: String,
+    /// Targets as host:port. Repeat for multiple targets.
+    #[arg(required = true, num_args = 1.., value_name = "TARGET")]
+    pub targets: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, clap::ValueEnum)]
@@ -233,8 +234,9 @@ pub struct HttpCommand {
     #[arg(short = 'q', long)]
     pub quiet: bool,
 
-    /// Target URL. If no scheme is given, http:// is assumed.
-    pub target: String,
+    /// Target URLs. If no scheme is given, http:// is assumed.
+    #[arg(required = true, num_args = 1.., value_name = "TARGET")]
+    pub targets: Vec<String>,
 }
 
 #[derive(Debug, Args)]
@@ -279,8 +281,9 @@ pub struct GtpProbeArgs {
     #[arg(short = 'q', long)]
     pub quiet: bool,
 
-    /// Target host or IP address.
-    pub target: String,
+    /// Target hosts or IP addresses.
+    #[arg(required = true, num_args = 1.., value_name = "TARGET")]
+    pub targets: Vec<String>,
 }
 
 pub fn parse_seconds(value: &str) -> Result<Duration, String> {
@@ -399,5 +402,15 @@ mod tests {
             cli.command,
             Command::Completion(CompletionCommand { shell: Shell::Bash })
         ));
+    }
+
+    #[test]
+    fn tcp_accepts_multiple_targets() {
+        let cli = Cli::parse_from(["clockping", "tcp", "one:443", "two:443"]);
+
+        let Command::Tcp(command) = cli.command else {
+            panic!("expected tcp command");
+        };
+        assert_eq!(command.targets, ["one:443", "two:443"]);
     }
 }

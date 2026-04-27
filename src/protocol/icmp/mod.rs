@@ -2,6 +2,7 @@ use std::{
     ffi::OsString,
     net::{IpAddr, SocketAddr},
     path::PathBuf,
+    sync::atomic::{AtomicU16, Ordering},
     time::Duration,
 };
 
@@ -17,6 +18,8 @@ use tokio::{
 
 use crate::{cli::parse_seconds, event::ProbeOutcome, output::Output, runner::Prober};
 
+static NEXT_PING_IDENTIFIER_OFFSET: AtomicU16 = AtomicU16::new(0);
+
 #[derive(Debug)]
 pub enum IcmpEngine {
     Native(NativeIcmpConfig),
@@ -31,7 +34,7 @@ pub struct ExternalPingConfig {
 
 #[derive(Debug, Clone)]
 pub struct NativeIcmpConfig {
-    pub destination: String,
+    pub destinations: Vec<String>,
     pub ipv4: bool,
     pub ipv6: bool,
     pub count: Option<u64>,
@@ -102,14 +105,15 @@ struct NativeIcmpArgs {
     #[arg(short = 'O', long)]
     report_outstanding: bool,
 
-    /// Destination host or IP address.
-    destination: String,
+    /// Destination hosts or IP addresses.
+    #[arg(required = true, num_args = 1.., value_name = "DESTINATION")]
+    destinations: Vec<String>,
 }
 
 impl From<NativeIcmpArgs> for NativeIcmpConfig {
     fn from(value: NativeIcmpArgs) -> Self {
         Self {
-            destination: value.destination,
+            destinations: value.destinations,
             ipv4: value.ipv4,
             ipv6: value.ipv6,
             count: value.count,
@@ -237,7 +241,11 @@ impl NativeIcmpProber {
             !(config.ipv4 && config.ipv6),
             "-4 and -6 cannot be used together"
         );
-        let host = resolve_icmp_host(&config.destination, config.ipv4, config.ipv6).await?;
+        let destination = config
+            .destinations
+            .first()
+            .ok_or_else(|| anyhow::anyhow!("missing ICMP destination"))?;
+        let host = resolve_icmp_host(destination, config.ipv4, config.ipv6).await?;
         let mut builder = Config::builder();
         if host.is_ipv6() {
             builder = builder.kind(ICMP::V6);
@@ -254,7 +262,7 @@ impl NativeIcmpProber {
         }
 
         let client = Client::new(&builder.build())?;
-        let ident = PingIdentifier((std::process::id() & 0xffff) as u16);
+        let ident = next_ping_identifier();
         let mut pinger = client.pinger(host, ident).await;
         pinger.timeout(config.timeout);
 
@@ -262,7 +270,7 @@ impl NativeIcmpProber {
             target: if config.numeric {
                 host.to_string()
             } else {
-                format!("{} ({host})", config.destination)
+                format!("{destination} ({host})")
             },
             _client: client,
             pinger,
@@ -270,6 +278,12 @@ impl NativeIcmpProber {
             report_outstanding: config.report_outstanding,
         })
     }
+}
+
+fn next_ping_identifier() -> PingIdentifier {
+    let process_id = (std::process::id() & 0xffff) as u16;
+    let offset = NEXT_PING_IDENTIFIER_OFFSET.fetch_add(1, Ordering::Relaxed);
+    PingIdentifier(process_id.wrapping_add(offset))
 }
 
 async fn resolve_icmp_host(destination: &str, ipv4: bool, ipv6: bool) -> anyhow::Result<IpAddr> {
@@ -374,10 +388,31 @@ mod tests {
             IcmpEngine::Native(config) => {
                 assert_eq!(config.count, Some(3));
                 assert_eq!(config.interval, Duration::from_millis(200));
-                assert_eq!(config.destination, "127.0.0.1");
+                assert_eq!(config.destinations, ["127.0.0.1"]);
             }
             IcmpEngine::External(_) => panic!("expected native engine"),
         }
+    }
+
+    #[test]
+    fn parse_native_multiple_destinations() {
+        let engine = parse_engine(vec![
+            OsString::from("127.0.0.1"),
+            OsString::from("127.0.0.2"),
+        ])
+        .unwrap();
+
+        match engine {
+            IcmpEngine::Native(config) => {
+                assert_eq!(config.destinations, ["127.0.0.1", "127.0.0.2"]);
+            }
+            IcmpEngine::External(_) => panic!("expected native engine"),
+        }
+    }
+
+    #[test]
+    fn ping_identifiers_are_unique_per_native_prober() {
+        assert_ne!(next_ping_identifier().0, next_ping_identifier().0);
     }
 
     #[test]

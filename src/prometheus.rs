@@ -37,6 +37,10 @@ impl PrometheusEncoder {
         render_interval_prometheus_with_labels(metrics, &self.metric_prefix, &self.labels)
     }
 
+    pub fn encode_intervals(&self, metrics: &[ProbeMetrics]) -> String {
+        render_interval_prometheus_many_with_labels(metrics, &self.metric_prefix, &self.labels)
+    }
+
     pub fn encode_window(&self, metrics: &WindowMetrics) -> String {
         render_window_prometheus_with_labels(metrics, &self.metric_prefix, &self.labels)
     }
@@ -55,8 +59,251 @@ pub(crate) fn render_interval_prometheus(metrics: &ProbeMetrics, prefix: &str) -
     render_interval_prometheus_with_labels(metrics, prefix, &[])
 }
 
+pub(crate) fn render_interval_prometheus_many(metrics: &[ProbeMetrics], prefix: &str) -> String {
+    render_interval_prometheus_many_with_labels(metrics, prefix, &[])
+}
+
+fn render_interval_prometheus_many_with_labels(
+    metrics: &[ProbeMetrics],
+    prefix: &str,
+    labels: &[(String, String)],
+) -> String {
+    let mut out = String::new();
+    gauge_family(
+        &mut out,
+        &metric_name(prefix, "probe_timestamp_seconds"),
+        metrics.iter().map(|metrics| {
+            (
+                metric_label_set(labels, &metrics.protocol, &metrics.target),
+                metrics.timestamp_unix_seconds,
+            )
+        }),
+    );
+    gauge_family(
+        &mut out,
+        &metric_name(prefix, "probe_sequence"),
+        metrics.iter().map(|metrics| {
+            (
+                metric_label_set(labels, &metrics.protocol, &metrics.target),
+                metrics.seq as f64,
+            )
+        }),
+    );
+    gauge_family(
+        &mut out,
+        &metric_name(prefix, "probe_sent"),
+        metrics.iter().map(|metrics| {
+            (
+                metric_label_set(labels, &metrics.protocol, &metrics.target),
+                metrics.sent as f64,
+            )
+        }),
+    );
+    gauge_family(
+        &mut out,
+        &metric_name(prefix, "probe_received"),
+        metrics.iter().map(|metrics| {
+            (
+                metric_label_set(labels, &metrics.protocol, &metrics.target),
+                metrics.received as f64,
+            )
+        }),
+    );
+    gauge_family(
+        &mut out,
+        &metric_name(prefix, "probe_lost"),
+        metrics.iter().map(|metrics| {
+            (
+                metric_label_set(labels, &metrics.protocol, &metrics.target),
+                metrics.lost as f64,
+            )
+        }),
+    );
+    gauge_family(
+        &mut out,
+        &metric_name(prefix, "probe_loss_percent"),
+        metrics.iter().map(|metrics| {
+            (
+                metric_label_set(labels, &metrics.protocol, &metrics.target),
+                metrics.loss_pct,
+            )
+        }),
+    );
+    gauge_family(
+        &mut out,
+        &metric_name(prefix, "probe_up"),
+        metrics.iter().map(|metrics| {
+            (
+                metric_label_set(labels, &metrics.protocol, &metrics.target),
+                metrics.up,
+            )
+        }),
+    );
+    gauge_family(
+        &mut out,
+        &metric_name(prefix, "probe_status"),
+        metrics.iter().map(|metrics| {
+            (
+                metric_label_set_with_status(
+                    labels,
+                    &metrics.protocol,
+                    &metrics.target,
+                    metrics.status,
+                ),
+                1.0,
+            )
+        }),
+    );
+    gauge_family(
+        &mut out,
+        &metric_name(prefix, "probe_rtt_seconds"),
+        metrics.iter().filter_map(|metrics| {
+            metrics.rtt_seconds.map(|value| {
+                (
+                    metric_label_set(labels, &metrics.protocol, &metrics.target),
+                    value,
+                )
+            })
+        }),
+    );
+    gauge_family(
+        &mut out,
+        &metric_name(prefix, "probe_bytes"),
+        metrics.iter().filter_map(|metrics| {
+            metrics.bytes.map(|value| {
+                (
+                    metric_label_set(labels, &metrics.protocol, &metrics.target),
+                    value as f64,
+                )
+            })
+        }),
+    );
+    gauge_family(
+        &mut out,
+        &metric_name(prefix, "probe_ttl"),
+        metrics.iter().filter_map(|metrics| {
+            metrics.ttl.map(|value| {
+                (
+                    metric_label_set(labels, &metrics.protocol, &metrics.target),
+                    f64::from(value),
+                )
+            })
+        }),
+    );
+    out
+}
+
 pub(crate) fn render_window_prometheus(metrics: &WindowMetrics, prefix: &str) -> String {
     render_window_prometheus_with_labels(metrics, prefix, &[])
+}
+
+pub(crate) fn render_window_prometheus_many(metrics: &[WindowMetrics], prefix: &str) -> String {
+    render_window_prometheus_many_with_labels(metrics, prefix, &[])
+}
+
+fn render_window_prometheus_many_with_labels(
+    metrics: &[WindowMetrics],
+    prefix: &str,
+    labels: &[(String, String)],
+) -> String {
+    let mut out = String::new();
+    gauge_family(
+        &mut out,
+        &metric_name(prefix, "window_timestamp_seconds"),
+        metrics.iter().map(|metrics| {
+            (
+                metric_label_set(labels, &metrics.protocol, &metrics.target),
+                metrics.timestamp_unix_seconds,
+            )
+        }),
+    );
+    gauge_family(
+        &mut out,
+        &metric_name(prefix, "window_duration_seconds"),
+        metrics.iter().map(|metrics| {
+            (
+                metric_label_set(labels, &metrics.protocol, &metrics.target),
+                metrics.duration_seconds,
+            )
+        }),
+    );
+    gauge_family(
+        &mut out,
+        &metric_name(prefix, "window_samples"),
+        metrics.iter().map(|metrics| {
+            (
+                metric_label_set(labels, &metrics.protocol, &metrics.target),
+                metrics.samples as f64,
+            )
+        }),
+    );
+    gauge_family(
+        &mut out,
+        &metric_name(prefix, "window_replies"),
+        metrics.iter().map(|metrics| {
+            (
+                metric_label_set(labels, &metrics.protocol, &metrics.target),
+                metrics.replies as f64,
+            )
+        }),
+    );
+    gauge_family(
+        &mut out,
+        &metric_name(prefix, "window_lost"),
+        metrics.iter().map(|metrics| {
+            (
+                metric_label_set(labels, &metrics.protocol, &metrics.target),
+                metrics.lost as f64,
+            )
+        }),
+    );
+    gauge_family(
+        &mut out,
+        &metric_name(prefix, "window_loss_percent"),
+        metrics.iter().map(|metrics| {
+            (
+                metric_label_set(labels, &metrics.protocol, &metrics.target),
+                metrics.loss_pct,
+            )
+        }),
+    );
+    gauge_family(
+        &mut out,
+        &metric_name(prefix, "window_rtt_mean_seconds"),
+        metrics.iter().filter_map(|metrics| {
+            metrics.rtt_mean_seconds.map(|value| {
+                (
+                    metric_label_set(labels, &metrics.protocol, &metrics.target),
+                    value,
+                )
+            })
+        }),
+    );
+    gauge_family(
+        &mut out,
+        &metric_name(prefix, "window_rtt_min_seconds"),
+        metrics.iter().filter_map(|metrics| {
+            metrics.rtt_min_seconds.map(|value| {
+                (
+                    metric_label_set(labels, &metrics.protocol, &metrics.target),
+                    value,
+                )
+            })
+        }),
+    );
+    gauge_family(
+        &mut out,
+        &metric_name(prefix, "window_rtt_max_seconds"),
+        metrics.iter().filter_map(|metrics| {
+            metrics.rtt_max_seconds.map(|value| {
+                (
+                    metric_label_set(labels, &metrics.protocol, &metrics.target),
+                    value,
+                )
+            })
+        }),
+    );
+    out
 }
 
 pub(crate) fn validate_metric_prefix(prefix: &str) -> anyhow::Result<()> {
@@ -307,11 +554,28 @@ fn gauge(out: &mut String, name: &str, value: f64, label_set: &str) {
     out.push_str("# TYPE ");
     out.push_str(name);
     out.push_str(" gauge\n");
+    gauge_sample(out, name, value, label_set);
+}
+
+fn gauge_sample(out: &mut String, name: &str, value: f64, label_set: &str) {
     out.push_str(name);
     out.push_str(label_set);
     out.push(' ');
     out.push_str(&value.to_string());
     out.push('\n');
+}
+
+fn gauge_family(out: &mut String, name: &str, samples: impl IntoIterator<Item = (String, f64)>) {
+    let mut samples = samples.into_iter().peekable();
+    if samples.peek().is_none() {
+        return;
+    }
+    out.push_str("# TYPE ");
+    out.push_str(name);
+    out.push_str(" gauge\n");
+    for (label_set, value) in samples {
+        gauge_sample(out, name, value, &label_set);
+    }
 }
 
 fn gauge_option(out: &mut String, name: &str, value: Option<f64>, label_set: &str) {
@@ -356,6 +620,29 @@ mod tests {
         ));
         assert!(rendered.contains("nettest_probe_rtt_seconds"));
         assert!(!rendered.contains("clockping_probe_sent"));
+    }
+
+    #[test]
+    fn interval_metrics_render_multiple_targets_in_one_family() {
+        let first = sample_metrics();
+        let mut second = sample_metrics();
+        second.target = "example.org:443".to_owned();
+        second.seq = 8;
+
+        let rendered = PrometheusEncoder::with_labels("nettest", [("site", "ci")])
+            .unwrap()
+            .encode_intervals(&[first, second]);
+
+        assert_eq!(
+            rendered.matches("# TYPE nettest_probe_sent gauge").count(),
+            1
+        );
+        assert!(rendered.contains(
+            "nettest_probe_sequence{site=\"ci\",protocol=\"tcp\",target=\"example.com:443\"} 7\n"
+        ));
+        assert!(rendered.contains(
+            "nettest_probe_sequence{site=\"ci\",protocol=\"tcp\",target=\"example.org:443\"} 8\n"
+        ));
     }
 
     #[test]
