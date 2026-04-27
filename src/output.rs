@@ -88,6 +88,10 @@ impl Output {
         Ok(())
     }
 
+    pub fn print_external_stderr_line(&self, line: &str) -> anyhow::Result<()> {
+        write_stderr_line(line)
+    }
+
     pub fn print_event(&self, event: &ProbeEvent) -> anyhow::Result<()> {
         if self.json {
             let timestamp = self.timestamp(event.ts).unwrap_or_default();
@@ -388,6 +392,12 @@ pub fn format_duration(duration: Duration) -> String {
 fn write_stdout_line(line: impl AsRef<str>) -> anyhow::Result<()> {
     let mut stdout = io::stdout().lock();
     writeln!(stdout, "{}", line.as_ref())?;
+    Ok(())
+}
+
+fn write_stderr_line(line: impl AsRef<str>) -> anyhow::Result<()> {
+    let mut stderr = io::stderr().lock();
+    writeln!(stderr, "{}", line.as_ref())?;
     Ok(())
 }
 

@@ -190,6 +190,106 @@ fn sigint_interrupts_active_probe() {
 }
 
 #[test]
+fn external_pinger_failure_prints_stderr_without_timestamp() {
+    let Some(python) = find_python3() else {
+        eprintln!("skipping external pinger stderr test; python3 not found");
+        return;
+    };
+    let script =
+        "import sys\nprint('usage: mock ping', file=sys.stderr, flush=True)\nsys.exit(64)\n";
+
+    let output = run_clockping_raw(&[
+        "--timestamp-format",
+        "STAMP",
+        "icmp",
+        "--pinger",
+        python,
+        "-c",
+        script,
+    ]);
+    let combined = combined_output(&output);
+
+    assert!(
+        !output.status.success(),
+        "failing mock pinger should fail clockping\n{combined}"
+    );
+    assert_contains(&combined, "usage: mock ping");
+    assert!(
+        !combined.contains("STAMP usage: mock ping"),
+        "external pinger stderr should not be timestamped\n{combined}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn external_pinger_sigint_forwards_to_child_and_drains_stats() {
+    let Some(python) = find_python3() else {
+        eprintln!("skipping external pinger SIGINT test; python3 not found");
+        return;
+    };
+    let script = r#"
+import signal
+import sys
+import time
+
+def stop(signum, frame):
+    print()
+    print('--- mock ping statistics ---')
+    print('3 packets transmitted, 3 received, 0% packet loss')
+    sys.stdout.flush()
+    sys.exit(0)
+
+signal.signal(signal.SIGINT, stop)
+print('PING mock (127.0.0.1): 56 data bytes', flush=True)
+while True:
+    time.sleep(10)
+"#;
+    let bin = clockping_bin();
+    let mut child = Command::new(&bin)
+        .args([
+            "--timestamp",
+            "none",
+            "icmp",
+            "--pinger",
+            python,
+            "-c",
+            script,
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to spawn clockping");
+
+    let stdout = child.stdout.take().expect("missing stdout pipe");
+    let mut reader = BufReader::new(stdout);
+    let mut stdout = String::new();
+    let bytes = reader
+        .read_line(&mut stdout)
+        .expect("failed to read first external pinger line");
+    assert_ne!(bytes, 0, "clockping exited before mock pinger output");
+    assert_contains(&stdout, "PING mock");
+
+    let signal_status = Command::new("kill")
+        .args(["-INT", &child.id().to_string()])
+        .status()
+        .expect("failed to send SIGINT");
+    assert!(signal_status.success(), "failed to send SIGINT");
+
+    let status = wait_for_child(&mut child, Duration::from_secs(5));
+    reader
+        .read_to_string(&mut stdout)
+        .expect("failed to read remaining external pinger output");
+    let stderr = child_stderr(&mut child);
+
+    assert!(
+        status.success(),
+        "expected external pinger SIGINT to exit successfully, got {status}\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert_contains(&stdout, "mock ping statistics");
+    assert_contains(&stdout, "3 packets transmitted, 3 received");
+}
+
+#[test]
 fn completion_subcommand_generates_bash_script() {
     let output = run_clockping_raw(&["completion", "bash"]);
     let combined = combined_output(&output);
@@ -1088,4 +1188,13 @@ fn find_ping() -> &'static str {
         .into_iter()
         .find(|path| std::path::Path::new(path).exists())
         .expect("ping binary not found")
+}
+
+fn find_python3() -> Option<&'static str> {
+    ["python3", "/usr/bin/python3"].into_iter().find(|program| {
+        Command::new(program)
+            .arg("--version")
+            .output()
+            .is_ok_and(|output| output.status.success())
+    })
 }

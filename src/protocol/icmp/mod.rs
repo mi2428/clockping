@@ -2,6 +2,7 @@ use std::{
     ffi::OsString,
     net::{IpAddr, SocketAddr},
     path::PathBuf,
+    process::ExitStatus,
     sync::atomic::{AtomicU16, Ordering},
     time::Duration,
 };
@@ -13,7 +14,8 @@ use surge_ping::{Client, Config, ICMP, IcmpPacket, PingIdentifier, PingSequence}
 use tokio::{
     io::{AsyncBufReadExt, BufReader},
     net::lookup_host,
-    process::Command,
+    process::{Child, Command},
+    time::sleep,
 };
 
 use crate::{cli::parse_seconds, event::ProbeOutcome, output::Output, runner::Prober};
@@ -213,18 +215,66 @@ pub async fn run_external(config: ExternalPingConfig, output: Output) -> anyhow:
     let stderr_task = tokio::spawn(async move {
         let mut lines = BufReader::new(stderr).lines();
         while let Some(line) = lines.next_line().await? {
-            stderr_output.print_external_line("stderr", &line)?;
+            stderr_output.print_external_stderr_line(&line)?;
         }
         anyhow::Ok(())
     });
 
-    let status = child.wait().await?;
+    let (status, interrupted) = wait_for_external_child(&mut child).await?;
     stdout_task.await??;
     stderr_task.await??;
-    if !status.success() {
+    if !status.success() && !interrupted {
         anyhow::bail!("{} exited with {status}", config.program.display());
     }
     Ok(())
+}
+
+async fn wait_for_external_child(child: &mut Child) -> anyhow::Result<(ExitStatus, bool)> {
+    tokio::select! {
+        status = child.wait() => Ok((status?, false)),
+        interrupt = tokio::signal::ctrl_c() => {
+            interrupt.context("failed to listen for Ctrl-C")?;
+            Ok((wait_after_ctrl_c(child).await?, true))
+        }
+    }
+}
+
+async fn wait_after_ctrl_c(child: &mut Child) -> anyhow::Result<ExitStatus> {
+    for _ in 0..10 {
+        if let Some(status) = child.try_wait()? {
+            return Ok(status);
+        }
+        sleep(Duration::from_millis(20)).await;
+    }
+
+    interrupt_external_child(child)?;
+    Ok(child.wait().await?)
+}
+
+#[cfg(unix)]
+fn interrupt_external_child(child: &mut Child) -> anyhow::Result<()> {
+    let Some(id) = child.id() else {
+        return Ok(());
+    };
+    // SAFETY: `kill` only receives the child PID returned by Tokio and does not
+    // dereference any pointers.
+    let result = unsafe { libc::kill(id as libc::pid_t, libc::SIGINT) };
+    if result == 0 {
+        return Ok(());
+    }
+
+    let error = std::io::Error::last_os_error();
+    if error.raw_os_error() == Some(libc::ESRCH) {
+        return Ok(());
+    }
+    Err(error).context("failed to send SIGINT to external pinger")
+}
+
+#[cfg(not(unix))]
+fn interrupt_external_child(child: &mut Child) -> anyhow::Result<()> {
+    child
+        .start_kill()
+        .context("failed to stop external pinger after Ctrl-C")
 }
 
 pub struct NativeIcmpProber {
