@@ -14,7 +14,8 @@ COPY . .
 RUN --mount=type=cache,id=clockping-cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,id=clockping-cargo-git,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,id=clockping-integration-target,target=/workspace/target,sharing=locked \
-    cargo build --locked \
+    rm -f target/debug/deps/integration_test-* \
+ && cargo build --locked \
  && cargo test --locked --test integration_test --no-run \
  && mkdir -p /out \
  && install -m 0755 target/debug/clockping /out/clockping \
