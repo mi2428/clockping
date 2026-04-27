@@ -92,18 +92,22 @@ _clockping() {
 
     case "${cmd}" in
         clockping)
-            opts="-C -h -V --timestamp --timestamp-format --json --colored --push.url --push.delete-on-exit --push.interval --push.job --push.label --push.retries --push.timeout --push.user-agent --metrics.file --metrics.format --metrics.label --metrics.prefix --help --version icmp tcp http gtp completion help"
+            opts="-h -V --ts.preset --ts.format --out.format --out.colored --push.url --push.delete-on-exit --push.interval --push.job --push.label --push.retries --push.timeout --push.user-agent --metrics.file --metrics.format --metrics.label --metrics.prefix --help --version icmp tcp http gtp completion help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 1 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
             case "${prev}" in
-                --timestamp)
+                --ts.preset)
                     COMPREPLY=($(compgen -W "local rfc3339 unix unix-ms none" -- "${cur}"))
                     return 0
                     ;;
-                --timestamp-format)
+                --ts.format)
                     COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --out.format)
+                    COMPREPLY=($(compgen -W "text json" -- "${cur}"))
                     return 0
                     ;;
                 --push.url)
@@ -158,12 +162,24 @@ _clockping() {
             return 0
             ;;
         clockping__subcmd__completion)
-            opts="-C -h --colored --push.url --push.delete-on-exit --push.interval --push.job --push.label --push.retries --push.timeout --push.user-agent --metrics.file --metrics.format --metrics.label --metrics.prefix --help bash elvish fish powershell zsh"
+            opts="-h -V --ts.preset --ts.format --out.format --out.colored --push.url --push.delete-on-exit --push.interval --push.job --push.label --push.retries --push.timeout --push.user-agent --metrics.file --metrics.format --metrics.label --metrics.prefix --help --version bash elvish fish powershell zsh"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
             case "${prev}" in
+                --ts.preset)
+                    COMPREPLY=($(compgen -W "local rfc3339 unix unix-ms none" -- "${cur}"))
+                    return 0
+                    ;;
+                --ts.format)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --out.format)
+                    COMPREPLY=($(compgen -W "text json" -- "${cur}"))
+                    return 0
+                    ;;
                 --push.url)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
@@ -216,12 +232,24 @@ _clockping() {
             return 0
             ;;
         clockping__subcmd__gtp)
-            opts="-C -h --colored --push.url --push.delete-on-exit --push.interval --push.job --push.label --push.retries --push.timeout --push.user-agent --metrics.file --metrics.format --metrics.label --metrics.prefix --help v1u v1c v2c help"
+            opts="-h -V --ts.preset --ts.format --out.format --out.colored --push.url --push.delete-on-exit --push.interval --push.job --push.label --push.retries --push.timeout --push.user-agent --metrics.file --metrics.format --metrics.label --metrics.prefix --help --version v1u v1c v2c help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
             case "${prev}" in
+                --ts.preset)
+                    COMPREPLY=($(compgen -W "local rfc3339 unix unix-ms none" -- "${cur}"))
+                    return 0
+                    ;;
+                --ts.format)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --out.format)
+                    COMPREPLY=($(compgen -W "text json" -- "${cur}"))
+                    return 0
+                    ;;
                 --push.url)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
@@ -344,7 +372,7 @@ _clockping() {
             return 0
             ;;
         clockping__subcmd__gtp__subcmd__v1c)
-            opts="-c -i -W -w -q -C -h --count --interval --timeout --deadline --port --quiet --colored --push.url --push.delete-on-exit --push.interval --push.job --push.label --push.retries --push.timeout --push.user-agent --metrics.file --metrics.format --metrics.label --metrics.prefix --help <TARGET>..."
+            opts="-c -i -W -w -q -h -V --count --interval --timeout --deadline --port --quiet --ts.preset --ts.format --out.format --out.colored --push.url --push.delete-on-exit --push.interval --push.job --push.label --push.retries --push.timeout --push.user-agent --metrics.file --metrics.format --metrics.label --metrics.prefix --help --version <TARGET>..."
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -384,6 +412,18 @@ _clockping() {
                     ;;
                 --port)
                     COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --ts.preset)
+                    COMPREPLY=($(compgen -W "local rfc3339 unix unix-ms none" -- "${cur}"))
+                    return 0
+                    ;;
+                --ts.format)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --out.format)
+                    COMPREPLY=($(compgen -W "text json" -- "${cur}"))
                     return 0
                     ;;
                 --push.url)
@@ -438,7 +478,7 @@ _clockping() {
             return 0
             ;;
         clockping__subcmd__gtp__subcmd__v1u)
-            opts="-c -i -W -w -q -C -h --count --interval --timeout --deadline --port --quiet --colored --push.url --push.delete-on-exit --push.interval --push.job --push.label --push.retries --push.timeout --push.user-agent --metrics.file --metrics.format --metrics.label --metrics.prefix --help <TARGET>..."
+            opts="-c -i -W -w -q -h -V --count --interval --timeout --deadline --port --quiet --ts.preset --ts.format --out.format --out.colored --push.url --push.delete-on-exit --push.interval --push.job --push.label --push.retries --push.timeout --push.user-agent --metrics.file --metrics.format --metrics.label --metrics.prefix --help --version <TARGET>..."
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -478,6 +518,18 @@ _clockping() {
                     ;;
                 --port)
                     COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --ts.preset)
+                    COMPREPLY=($(compgen -W "local rfc3339 unix unix-ms none" -- "${cur}"))
+                    return 0
+                    ;;
+                --ts.format)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --out.format)
+                    COMPREPLY=($(compgen -W "text json" -- "${cur}"))
                     return 0
                     ;;
                 --push.url)
@@ -532,7 +584,7 @@ _clockping() {
             return 0
             ;;
         clockping__subcmd__gtp__subcmd__v2c)
-            opts="-c -i -W -w -q -C -h --count --interval --timeout --deadline --port --quiet --colored --push.url --push.delete-on-exit --push.interval --push.job --push.label --push.retries --push.timeout --push.user-agent --metrics.file --metrics.format --metrics.label --metrics.prefix --help <TARGET>..."
+            opts="-c -i -W -w -q -h -V --count --interval --timeout --deadline --port --quiet --ts.preset --ts.format --out.format --out.colored --push.url --push.delete-on-exit --push.interval --push.job --push.label --push.retries --push.timeout --push.user-agent --metrics.file --metrics.format --metrics.label --metrics.prefix --help --version <TARGET>..."
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -572,6 +624,18 @@ _clockping() {
                     ;;
                 --port)
                     COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --ts.preset)
+                    COMPREPLY=($(compgen -W "local rfc3339 unix unix-ms none" -- "${cur}"))
+                    return 0
+                    ;;
+                --ts.format)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --out.format)
+                    COMPREPLY=($(compgen -W "text json" -- "${cur}"))
                     return 0
                     ;;
                 --push.url)
@@ -766,7 +830,7 @@ _clockping() {
             return 0
             ;;
         clockping__subcmd__http)
-            opts="-4 -6 -c -i -W -w -X -H -L -k -q -C -h --count --interval --timeout --deadline --method --ok-status --header --location --insecure --quiet --colored --push.url --push.delete-on-exit --push.interval --push.job --push.label --push.retries --push.timeout --push.user-agent --metrics.file --metrics.format --metrics.label --metrics.prefix --help <TARGET>..."
+            opts="-4 -6 -c -i -W -w -X -H -L -k -q -h -V --count --interval --timeout --deadline --method --ok-status --header --location --insecure --quiet --ts.preset --ts.format --out.format --out.colored --push.url --push.delete-on-exit --push.interval --push.job --push.label --push.retries --push.timeout --push.user-agent --metrics.file --metrics.format --metrics.label --metrics.prefix --help --version <TARGET>..."
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -824,6 +888,18 @@ _clockping() {
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
+                --ts.preset)
+                    COMPREPLY=($(compgen -W "local rfc3339 unix unix-ms none" -- "${cur}"))
+                    return 0
+                    ;;
+                --ts.format)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --out.format)
+                    COMPREPLY=($(compgen -W "text json" -- "${cur}"))
+                    return 0
+                    ;;
                 --push.url)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
@@ -876,12 +952,24 @@ _clockping() {
             return 0
             ;;
         clockping__subcmd__icmp)
-            opts="-C -h --colored --push.url --push.delete-on-exit --push.interval --push.job --push.label --push.retries --push.timeout --push.user-agent --metrics.file --metrics.format --metrics.label --metrics.prefix --help [ARGS]..."
+            opts="-h -V --ts.preset --ts.format --out.format --out.colored --push.url --push.delete-on-exit --push.interval --push.job --push.label --push.retries --push.timeout --push.user-agent --metrics.file --metrics.format --metrics.label --metrics.prefix --help --version [ARGS]..."
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
             case "${prev}" in
+                --ts.preset)
+                    COMPREPLY=($(compgen -W "local rfc3339 unix unix-ms none" -- "${cur}"))
+                    return 0
+                    ;;
+                --ts.format)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --out.format)
+                    COMPREPLY=($(compgen -W "text json" -- "${cur}"))
+                    return 0
+                    ;;
                 --push.url)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
@@ -934,7 +1022,7 @@ _clockping() {
             return 0
             ;;
         clockping__subcmd__tcp)
-            opts="-4 -6 -c -i -W -w -q -C -h --count --interval --timeout --deadline --quiet --colored --push.url --push.delete-on-exit --push.interval --push.job --push.label --push.retries --push.timeout --push.user-agent --metrics.file --metrics.format --metrics.label --metrics.prefix --help <TARGET>..."
+            opts="-4 -6 -c -i -W -w -q -h -V --count --interval --timeout --deadline --quiet --ts.preset --ts.format --out.format --out.colored --push.url --push.delete-on-exit --push.interval --push.job --push.label --push.retries --push.timeout --push.user-agent --metrics.file --metrics.format --metrics.label --metrics.prefix --help --version <TARGET>..."
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -970,6 +1058,18 @@ _clockping() {
                     ;;
                 -w)
                     COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --ts.preset)
+                    COMPREPLY=($(compgen -W "local rfc3339 unix unix-ms none" -- "${cur}"))
+                    return 0
+                    ;;
+                --ts.format)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --out.format)
+                    COMPREPLY=($(compgen -W "text json" -- "${cur}"))
                     return 0
                     ;;
                 --push.url)

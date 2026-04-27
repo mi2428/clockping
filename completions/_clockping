@@ -15,8 +15,9 @@ _clockping() {
 
     local context curcontext="$curcontext" state line
     _arguments "${_arguments_options[@]}" : \
-'--timestamp=[Timestamp preset for human-readable output]:TIMESTAMP:(local rfc3339 unix unix-ms none)' \
-'--timestamp-format=[strftime-like timestamp format, similar to \`date +"..."\`]:TIMESTAMP_FORMAT:_default' \
+'--ts.preset=[Timestamp preset for human-readable output]:PRESET:(local rfc3339 unix unix-ms none)' \
+'--ts.format=[strftime-like timestamp format, similar to \`date +"..."\`]:FORMAT:_default' \
+'--out.format=[Output format]:FORMAT:(text json)' \
 '--push.url=[Push interval metrics to a Pushgateway URL]:URL:_default' \
 '--push.interval=[Aggregate interval samples before pushing window metrics]:DURATION:_default' \
 '--push.job=[Pushgateway job name]:JOB:_default' \
@@ -28,9 +29,7 @@ _clockping() {
 '--metrics.format=[Metrics file format\: jsonl or prometheus]:FORMAT:_default' \
 '*--metrics.label=[Add a Prometheus file sample label. Repeat for multiple labels]:KEY=VALUE:_default' \
 '--metrics.prefix=[Prometheus metric name prefix]:PREFIX:_default' \
-'--json[Emit JSON Lines instead of text]' \
-'-C[Colorize human-readable output with ANSI escape sequences]' \
-'--colored[Colorize human-readable output with ANSI escape sequences]' \
+'--out.colored[Colorize human-readable output with ANSI escape sequences]' \
 '--push.delete-on-exit[Delete this Pushgateway grouping key after the run exits]' \
 '-h[Print help]' \
 '--help[Print help]' \
@@ -47,6 +46,9 @@ _clockping() {
         case $line[1] in
             (icmp)
 _arguments "${_arguments_options[@]}" : \
+'--ts.preset=[Timestamp preset for human-readable output]:PRESET:(local rfc3339 unix unix-ms none)' \
+'--ts.format=[strftime-like timestamp format, similar to \`date +"..."\`]:FORMAT:_default' \
+'--out.format=[Output format]:FORMAT:(text json)' \
 '--push.url=[Push interval metrics to a Pushgateway URL]:URL:_default' \
 '--push.interval=[Aggregate interval samples before pushing window metrics]:DURATION:_default' \
 '--push.job=[Pushgateway job name]:JOB:_default' \
@@ -58,11 +60,12 @@ _arguments "${_arguments_options[@]}" : \
 '--metrics.format=[Metrics file format\: jsonl or prometheus]:FORMAT:_default' \
 '*--metrics.label=[Add a Prometheus file sample label. Repeat for multiple labels]:KEY=VALUE:_default' \
 '--metrics.prefix=[Prometheus metric name prefix]:PREFIX:_default' \
-'-C[Colorize human-readable output with ANSI escape sequences]' \
-'--colored[Colorize human-readable output with ANSI escape sequences]' \
+'--out.colored[Colorize human-readable output with ANSI escape sequences]' \
 '--push.delete-on-exit[Delete this Pushgateway grouping key after the run exits]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'-V[Print version]' \
+'--version[Print version]' \
 '*::args -- ICMP native options, or system ping argv when --pinger is specified:_default' \
 && ret=0
 ;;
@@ -76,6 +79,9 @@ _arguments "${_arguments_options[@]}" : \
 '--timeout=[Per-probe connect timeout in seconds]:TIMEOUT:_default' \
 '-w+[Stop the command after this many seconds]:DEADLINE:_default' \
 '--deadline=[Stop the command after this many seconds]:DEADLINE:_default' \
+'--ts.preset=[Timestamp preset for human-readable output]:PRESET:(local rfc3339 unix unix-ms none)' \
+'--ts.format=[strftime-like timestamp format, similar to \`date +"..."\`]:FORMAT:_default' \
+'--out.format=[Output format]:FORMAT:(text json)' \
 '--push.url=[Push interval metrics to a Pushgateway URL]:URL:_default' \
 '--push.interval=[Aggregate interval samples before pushing window metrics]:DURATION:_default' \
 '--push.job=[Pushgateway job name]:JOB:_default' \
@@ -91,11 +97,12 @@ _arguments "${_arguments_options[@]}" : \
 '-6[Use IPv6 only]' \
 '-q[Suppress per-probe output and only print the summary]' \
 '--quiet[Suppress per-probe output and only print the summary]' \
-'-C[Colorize human-readable output with ANSI escape sequences]' \
-'--colored[Colorize human-readable output with ANSI escape sequences]' \
+'--out.colored[Colorize human-readable output with ANSI escape sequences]' \
 '--push.delete-on-exit[Delete this Pushgateway grouping key after the run exits]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'-V[Print version]' \
+'--version[Print version]' \
 '*::targets -- Targets as host\:port. Repeat for multiple targets:_default' \
 && ret=0
 ;;
@@ -114,6 +121,9 @@ _arguments "${_arguments_options[@]}" : \
 '--ok-status=[Treat these HTTP status codes as successful, e.g. 200,204,300-399]:OK_STATUS:_default' \
 '*-H+[Add a request header. Repeat for multiple headers]:HEADERS:_default' \
 '*--header=[Add a request header. Repeat for multiple headers]:HEADERS:_default' \
+'--ts.preset=[Timestamp preset for human-readable output]:PRESET:(local rfc3339 unix unix-ms none)' \
+'--ts.format=[strftime-like timestamp format, similar to \`date +"..."\`]:FORMAT:_default' \
+'--out.format=[Output format]:FORMAT:(text json)' \
 '--push.url=[Push interval metrics to a Pushgateway URL]:URL:_default' \
 '--push.interval=[Aggregate interval samples before pushing window metrics]:DURATION:_default' \
 '--push.job=[Pushgateway job name]:JOB:_default' \
@@ -133,16 +143,20 @@ _arguments "${_arguments_options[@]}" : \
 '--insecure[Skip TLS certificate verification]' \
 '-q[Suppress per-probe output and only print the summary]' \
 '--quiet[Suppress per-probe output and only print the summary]' \
-'-C[Colorize human-readable output with ANSI escape sequences]' \
-'--colored[Colorize human-readable output with ANSI escape sequences]' \
+'--out.colored[Colorize human-readable output with ANSI escape sequences]' \
 '--push.delete-on-exit[Delete this Pushgateway grouping key after the run exits]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'-V[Print version]' \
+'--version[Print version]' \
 '*::targets -- Target URLs. If no scheme is given, http\:// is assumed:_default' \
 && ret=0
 ;;
 (gtp)
 _arguments "${_arguments_options[@]}" : \
+'--ts.preset=[Timestamp preset for human-readable output]:PRESET:(local rfc3339 unix unix-ms none)' \
+'--ts.format=[strftime-like timestamp format, similar to \`date +"..."\`]:FORMAT:_default' \
+'--out.format=[Output format]:FORMAT:(text json)' \
 '--push.url=[Push interval metrics to a Pushgateway URL]:URL:_default' \
 '--push.interval=[Aggregate interval samples before pushing window metrics]:DURATION:_default' \
 '--push.job=[Pushgateway job name]:JOB:_default' \
@@ -154,11 +168,12 @@ _arguments "${_arguments_options[@]}" : \
 '--metrics.format=[Metrics file format\: jsonl or prometheus]:FORMAT:_default' \
 '*--metrics.label=[Add a Prometheus file sample label. Repeat for multiple labels]:KEY=VALUE:_default' \
 '--metrics.prefix=[Prometheus metric name prefix]:PREFIX:_default' \
-'-C[Colorize human-readable output with ANSI escape sequences]' \
-'--colored[Colorize human-readable output with ANSI escape sequences]' \
+'--out.colored[Colorize human-readable output with ANSI escape sequences]' \
 '--push.delete-on-exit[Delete this Pushgateway grouping key after the run exits]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'-V[Print version]' \
+'--version[Print version]' \
 ":: :_clockping__subcmd__gtp_commands" \
 "*::: :->gtp" \
 && ret=0
@@ -180,6 +195,9 @@ _arguments "${_arguments_options[@]}" : \
 '-w+[Stop the command after this many seconds]:DEADLINE:_default' \
 '--deadline=[Stop the command after this many seconds]:DEADLINE:_default' \
 '--port=[Override the protocol default UDP port]:PORT:_default' \
+'--ts.preset=[Timestamp preset for human-readable output]:PRESET:(local rfc3339 unix unix-ms none)' \
+'--ts.format=[strftime-like timestamp format, similar to \`date +"..."\`]:FORMAT:_default' \
+'--out.format=[Output format]:FORMAT:(text json)' \
 '--push.url=[Push interval metrics to a Pushgateway URL]:URL:_default' \
 '--push.interval=[Aggregate interval samples before pushing window metrics]:DURATION:_default' \
 '--push.job=[Pushgateway job name]:JOB:_default' \
@@ -193,11 +211,12 @@ _arguments "${_arguments_options[@]}" : \
 '--metrics.prefix=[Prometheus metric name prefix]:PREFIX:_default' \
 '-q[Suppress per-probe output and only print the summary]' \
 '--quiet[Suppress per-probe output and only print the summary]' \
-'-C[Colorize human-readable output with ANSI escape sequences]' \
-'--colored[Colorize human-readable output with ANSI escape sequences]' \
+'--out.colored[Colorize human-readable output with ANSI escape sequences]' \
 '--push.delete-on-exit[Delete this Pushgateway grouping key after the run exits]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'-V[Print version]' \
+'--version[Print version]' \
 '*::targets -- Target hosts or IP addresses:_default' \
 && ret=0
 ;;
@@ -212,6 +231,9 @@ _arguments "${_arguments_options[@]}" : \
 '-w+[Stop the command after this many seconds]:DEADLINE:_default' \
 '--deadline=[Stop the command after this many seconds]:DEADLINE:_default' \
 '--port=[Override the protocol default UDP port]:PORT:_default' \
+'--ts.preset=[Timestamp preset for human-readable output]:PRESET:(local rfc3339 unix unix-ms none)' \
+'--ts.format=[strftime-like timestamp format, similar to \`date +"..."\`]:FORMAT:_default' \
+'--out.format=[Output format]:FORMAT:(text json)' \
 '--push.url=[Push interval metrics to a Pushgateway URL]:URL:_default' \
 '--push.interval=[Aggregate interval samples before pushing window metrics]:DURATION:_default' \
 '--push.job=[Pushgateway job name]:JOB:_default' \
@@ -225,11 +247,12 @@ _arguments "${_arguments_options[@]}" : \
 '--metrics.prefix=[Prometheus metric name prefix]:PREFIX:_default' \
 '-q[Suppress per-probe output and only print the summary]' \
 '--quiet[Suppress per-probe output and only print the summary]' \
-'-C[Colorize human-readable output with ANSI escape sequences]' \
-'--colored[Colorize human-readable output with ANSI escape sequences]' \
+'--out.colored[Colorize human-readable output with ANSI escape sequences]' \
 '--push.delete-on-exit[Delete this Pushgateway grouping key after the run exits]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'-V[Print version]' \
+'--version[Print version]' \
 '*::targets -- Target hosts or IP addresses:_default' \
 && ret=0
 ;;
@@ -244,6 +267,9 @@ _arguments "${_arguments_options[@]}" : \
 '-w+[Stop the command after this many seconds]:DEADLINE:_default' \
 '--deadline=[Stop the command after this many seconds]:DEADLINE:_default' \
 '--port=[Override the protocol default UDP port]:PORT:_default' \
+'--ts.preset=[Timestamp preset for human-readable output]:PRESET:(local rfc3339 unix unix-ms none)' \
+'--ts.format=[strftime-like timestamp format, similar to \`date +"..."\`]:FORMAT:_default' \
+'--out.format=[Output format]:FORMAT:(text json)' \
 '--push.url=[Push interval metrics to a Pushgateway URL]:URL:_default' \
 '--push.interval=[Aggregate interval samples before pushing window metrics]:DURATION:_default' \
 '--push.job=[Pushgateway job name]:JOB:_default' \
@@ -257,11 +283,12 @@ _arguments "${_arguments_options[@]}" : \
 '--metrics.prefix=[Prometheus metric name prefix]:PREFIX:_default' \
 '-q[Suppress per-probe output and only print the summary]' \
 '--quiet[Suppress per-probe output and only print the summary]' \
-'-C[Colorize human-readable output with ANSI escape sequences]' \
-'--colored[Colorize human-readable output with ANSI escape sequences]' \
+'--out.colored[Colorize human-readable output with ANSI escape sequences]' \
 '--push.delete-on-exit[Delete this Pushgateway grouping key after the run exits]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'-V[Print version]' \
+'--version[Print version]' \
 '*::targets -- Target hosts or IP addresses:_default' \
 && ret=0
 ;;
@@ -303,6 +330,9 @@ esac
 ;;
 (completion)
 _arguments "${_arguments_options[@]}" : \
+'--ts.preset=[Timestamp preset for human-readable output]:PRESET:(local rfc3339 unix unix-ms none)' \
+'--ts.format=[strftime-like timestamp format, similar to \`date +"..."\`]:FORMAT:_default' \
+'--out.format=[Output format]:FORMAT:(text json)' \
 '--push.url=[Push interval metrics to a Pushgateway URL]:URL:_default' \
 '--push.interval=[Aggregate interval samples before pushing window metrics]:DURATION:_default' \
 '--push.job=[Pushgateway job name]:JOB:_default' \
@@ -314,11 +344,12 @@ _arguments "${_arguments_options[@]}" : \
 '--metrics.format=[Metrics file format\: jsonl or prometheus]:FORMAT:_default' \
 '*--metrics.label=[Add a Prometheus file sample label. Repeat for multiple labels]:KEY=VALUE:_default' \
 '--metrics.prefix=[Prometheus metric name prefix]:PREFIX:_default' \
-'-C[Colorize human-readable output with ANSI escape sequences]' \
-'--colored[Colorize human-readable output with ANSI escape sequences]' \
+'--out.colored[Colorize human-readable output with ANSI escape sequences]' \
 '--push.delete-on-exit[Delete this Pushgateway grouping key after the run exits]' \
 '-h[Print help]' \
 '--help[Print help]' \
+'-V[Print version]' \
+'--version[Print version]' \
 ':shell -- Shell to generate completion script for:(bash elvish fish powershell zsh)' \
 && ret=0
 ;;
