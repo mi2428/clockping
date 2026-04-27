@@ -24,6 +24,23 @@ clockping --timestamp-format "%Y-%m-%d %H:%M:%S%.3f %z" icmp 8.8.8.8
 clockping --timestamp rfc3339 --json tcp example.com:443
 ```
 
+## Shell completion
+
+Completion scripts for bash, zsh, and fish are tracked in `completions/`.
+Install them with the release binary by passing `COMPLETION=1`:
+
+```sh
+make install COMPLETION=1
+```
+
+You can also print a script directly:
+
+```sh
+clockping completion bash
+clockping completion zsh
+clockping completion fish
+```
+
 ## ICMP modes
 
 `clockping icmp` uses native ICMP by default. It currently accepts the common

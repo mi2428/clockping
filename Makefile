@@ -16,15 +16,29 @@ COMPOSE ?= $(shell if $(DOCKER) compose version >/dev/null 2>&1; then printf '%s
 MULTIPASS ?= multipass
 GIT_REMOTE ?= origin
 
-APP          := clockping
-BINDIR       := bin
-DISTDIR      := dist
-TEST_COMPOSE := docker-compose.test.yml
+APP            := clockping
+BINDIR         := bin
+COMPLETION_DIR := completions
+DISTDIR        := dist
+TEST_COMPOSE   := docker-compose.test.yml
 
-INSTALL_PREFIX ?= $(HOME)/.local
-INSTALL_BINDIR ?= $(INSTALL_PREFIX)/bin
-OS             ?= darwin,linux
-ARCH           ?= amd64,arm64
+INSTALL_PREFIX      ?= $(HOME)/.local
+INSTALL_BINDIR      ?= $(INSTALL_PREFIX)/bin
+BASH_COMPLETION_DIR ?= $(INSTALL_PREFIX)/share/bash-completion/completions
+DETECTED_ZSH_COMPLETION_DIR := $(shell \
+	if command -v zsh >/dev/null 2>&1; then \
+		zsh -fc 'print -rl -- $${fpath[@]}' 2>/dev/null | \
+			while IFS= read -r dir; do \
+				if [ "$${dir%/site-functions}" != "$$dir" ] && [ -d "$$dir" ] && [ -w "$$dir" ]; then \
+					printf '%s\n' "$$dir"; \
+					exit 0; \
+				fi; \
+			done; \
+	fi)
+ZSH_COMPLETION_DIR  ?= $(or $(DETECTED_ZSH_COMPLETION_DIR),$(INSTALL_PREFIX)/share/zsh/site-functions)
+FISH_COMPLETION_DIR ?= $(INSTALL_PREFIX)/share/fish/vendor_completions.d
+OS                  ?= darwin,linux
+ARCH                ?= amd64,arm64
 
 DARWIN_ARCHS := amd64 arm64
 LINUX_ARCHS  := amd64 arm64
@@ -69,6 +83,69 @@ install: ## Build and install the host binary into INSTALL_BINDIR
 	@mkdir -p "$(INSTALL_BINDIR)"
 	@$(INSTALL) -m 0755 "target/release/$(APP)" "$(INSTALL_BINDIR)/$(APP)"
 	@printf 'Installed %s\n' "$(INSTALL_BINDIR)/$(APP)"
+	@if [ "$(COMPLETION)" = "1" ]; then \
+		$(MAKE) --no-print-directory _completions MODE=install; \
+	fi
+
+.PHONY: completions
+completions: ## Generate shell completions into completions/
+	@$(MAKE) --no-print-directory _completions MODE=generate
+
+.PHONY: _completions
+_completions:
+	@mode="$(MODE)"; \
+	if [ "$(CHECK_ONLY)" = "1" ]; then \
+		mode="check"; \
+	fi; \
+	case "$$mode" in \
+		generate) \
+			mkdir -p "$(COMPLETION_DIR)"; \
+			$(CARGO_ENV) $(CARGO) run --quiet -- completion bash > "$(COMPLETION_DIR)/$(APP).bash"; \
+			$(CARGO_ENV) $(CARGO) run --quiet -- completion zsh > "$(COMPLETION_DIR)/_$(APP)"; \
+			$(CARGO_ENV) $(CARGO) run --quiet -- completion fish > "$(COMPLETION_DIR)/$(APP).fish"; \
+			printf 'Wrote shell completions to %s/\n' "$(COMPLETION_DIR)"; \
+			;; \
+		""|check) \
+			tmp_dir="$$(mktemp -d "$${TMPDIR:-/tmp}/$(APP)-completion.XXXXXX")"; \
+			trap 'rm -rf "$$tmp_dir"' EXIT; \
+			$(CARGO_ENV) $(CARGO) run --quiet -- completion bash > "$$tmp_dir/$(APP).bash"; \
+			$(CARGO_ENV) $(CARGO) run --quiet -- completion zsh > "$$tmp_dir/_$(APP)"; \
+			$(CARGO_ENV) $(CARGO) run --quiet -- completion fish > "$$tmp_dir/$(APP).fish"; \
+			for file in "$(APP).bash" "_$(APP)" "$(APP).fish"; do \
+				if ! cmp -s "$$tmp_dir/$$file" "$(COMPLETION_DIR)/$$file"; then \
+					printf 'Completion %s is stale; run make completions\n' "$$file" >&2; \
+					exit 1; \
+				fi; \
+			done; \
+			bash -n "$(COMPLETION_DIR)/$(APP).bash"; \
+			if command -v zsh >/dev/null 2>&1; then \
+				zsh -n "$(COMPLETION_DIR)/_$(APP)"; \
+			else \
+				printf 'Skipping zsh completion check; zsh not found\n'; \
+			fi; \
+			if command -v fish >/dev/null 2>&1; then \
+				fish -n "$(COMPLETION_DIR)/$(APP).fish"; \
+			else \
+				printf 'Skipping fish completion check; fish not found\n'; \
+			fi; \
+			;; \
+		install) \
+			mkdir -p "$(BASH_COMPLETION_DIR)" "$(ZSH_COMPLETION_DIR)" "$(FISH_COMPLETION_DIR)"; \
+			$(INSTALL) -m 0644 "$(COMPLETION_DIR)/$(APP).bash" "$(BASH_COMPLETION_DIR)/$(APP)"; \
+			$(INSTALL) -m 0644 "$(COMPLETION_DIR)/_$(APP)" "$(ZSH_COMPLETION_DIR)/_$(APP)"; \
+			$(INSTALL) -m 0644 "$(COMPLETION_DIR)/$(APP).fish" "$(FISH_COMPLETION_DIR)/$(APP).fish"; \
+			printf 'Installed bash completion to %s/%s\n' "$(BASH_COMPLETION_DIR)" "$(APP)"; \
+			printf 'Installed zsh completion to %s/_%s\n' "$(ZSH_COMPLETION_DIR)" "$(APP)"; \
+			printf 'Installed fish completion to %s/%s.fish\n' "$(FISH_COMPLETION_DIR)" "$(APP)"; \
+			if command -v zsh >/dev/null 2>&1 && ! zsh -fc 'target=$$1; for dir in $${fpath[@]}; do [[ "$$dir" == "$$target" ]] && exit 0; done; exit 1' -- "$(ZSH_COMPLETION_DIR)"; then \
+				printf 'Note: zsh completion dir is not in fpath; add before compinit: fpath=(%s $$fpath)\n' "$(ZSH_COMPLETION_DIR)"; \
+			fi; \
+			;; \
+		*) \
+			echo "Unsupported MODE '$$mode'. Supported values: check, generate, install" >&2; \
+			exit 1; \
+			;; \
+	esac
 
 .PHONY: fmt
 fmt: ## Format Rust sources. Use CHECK_ONLY=1 to check without writing
@@ -96,11 +173,12 @@ integration: ## Run Docker Compose integration tests
 	$(COMPOSE) -f $(TEST_COMPOSE) up --build --abort-on-container-exit --exit-code-from sut
 
 .PHONY: check
-check: ## Run formatting, lint, rustdoc, and tests
+check: ## Run formatting, lint, rustdoc, tests, and completion checks
 	@$(MAKE) --no-print-directory fmt CHECK_ONLY=1
 	@$(MAKE) --no-print-directory lint
 	@$(MAKE) --no-print-directory doc
 	@$(MAKE) --no-print-directory test
+	@$(MAKE) --no-print-directory _completions CHECK_ONLY=1
 
 .PHONY: multipass
 multipass: ## Launch a Multipass VM and copy the source tree for manual Linux testing
@@ -319,15 +397,18 @@ help: ## Show this help message
 			} \
 		}' $(MAKEFILE_LIST)
 	@printf "\n\033[1mVariables:\033[0m\n"
-	@printf "  \033[36mTAG\033[0m              Release tag for \033[36mmake release\033[0m, for example \033[36mv1.0.0\033[0m\n"
-	@printf "  \033[36mGIT_REMOTE\033[0m       Release git remote, defaults to \033[36m%s\033[0m\n" "$(GIT_REMOTE)"
-	@printf "  \033[36mOS\033[0m               Release OS list: \033[36mdarwin,linux\033[0m\n"
-	@printf "  \033[36mARCH\033[0m             Release arch list: \033[36mamd64,arm64\033[0m\n"
-	@printf "  \033[36mINSTALL_BINDIR\033[0m   Install directory, defaults to \033[36m%s\033[0m\n" "$(INSTALL_BINDIR)"
-	@printf "  \033[36mMULTIPASS_NAME\033[0m   Multipass VM name, defaults to \033[36m%s\033[0m\n" "$(MULTIPASS_NAME)"
+	@printf "  \033[36mTAG\033[0m                    Release tag for \033[36mmake release\033[0m, for example \033[36mv1.0.0\033[0m\n"
+	@printf "  \033[36mGIT_REMOTE\033[0m             Release git remote, defaults to \033[36m%s\033[0m\n" "$(GIT_REMOTE)"
+	@printf "  \033[36mOS\033[0m                     Release OS list: \033[36mdarwin,linux\033[0m\n"
+	@printf "  \033[36mARCH\033[0m                   Release arch list: \033[36mamd64,arm64\033[0m\n"
+	@printf "  \033[36mINSTALL_BINDIR\033[0m         Install directory, defaults to \033[36m%s\033[0m\n" "$(INSTALL_BINDIR)"
+	@printf "  \033[36mBASH_COMPLETION_DIR\033[0m    Bash completion install dir, defaults to \033[36m%s\033[0m\n" "$(BASH_COMPLETION_DIR)"
+	@printf "  \033[36mZSH_COMPLETION_DIR\033[0m     Zsh completion install dir, defaults to \033[36m%s\033[0m\n" "$(ZSH_COMPLETION_DIR)"
+	@printf "  \033[36mFISH_COMPLETION_DIR\033[0m    Fish completion install dir, defaults to \033[36m%s\033[0m\n" "$(FISH_COMPLETION_DIR)"
+	@printf "  \033[36mMULTIPASS_NAME\033[0m         Multipass VM name, defaults to \033[36m%s\033[0m\n" "$(MULTIPASS_NAME)"
 	@printf "\n\033[1mExamples:\033[0m\n"
 	@printf "  \033[36m%-42s\033[0m # to check formatting without writing\n" "make fmt CHECK_ONLY=1"
-	@printf "  \033[36m%-42s\033[0m # to build and install the host binary\n" "make install"
+	@printf "  \033[36m%-42s\033[0m # to build and install the host binary and completions\n" "make install COMPLETION=1"
 	@printf "  \033[36m%-42s\033[0m # to run all local quality gates\n" "make check integration"
 	@printf "  \033[36m%-42s\033[0m # to push the release tag that triggers CI release\n" "make release TAG=v1.0.0"
 	@printf "  \033[36m%-42s\033[0m # to build release binaries and checksums\n" "make dist OS=darwin,linux ARCH=amd64,arm64"

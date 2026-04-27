@@ -1,0 +1,417 @@
+#compdef clockping
+
+autoload -U is-at-least
+
+_clockping() {
+    typeset -A opt_args
+    typeset -a _arguments_options
+    local ret=1
+
+    if is-at-least 5.2; then
+        _arguments_options=(-s -S -C)
+    else
+        _arguments_options=(-s -C)
+    fi
+
+    local context curcontext="$curcontext" state line
+    _arguments "${_arguments_options[@]}" : \
+'--timestamp=[Timestamp preset for human-readable output]:TIMESTAMP:(local rfc3339 unix unix-ms none)' \
+'--timestamp-format=[strftime-like timestamp format, similar to \`date +"..."\`]:TIMESTAMP_FORMAT:_default' \
+'--json[Emit JSON Lines instead of text]' \
+'-h[Print help]' \
+'--help[Print help]' \
+'-V[Print version]' \
+'--version[Print version]' \
+":: :_clockping_commands" \
+"*::: :->clockping" \
+&& ret=0
+    case $state in
+    (clockping)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:clockping-command-$line[1]:"
+        case $line[1] in
+            (icmp)
+_arguments "${_arguments_options[@]}" : \
+'-h[Print help]' \
+'--help[Print help]' \
+'*::args -- ICMP native options, or system ping argv when --pinger is specified:_default' \
+&& ret=0
+;;
+(tcp)
+_arguments "${_arguments_options[@]}" : \
+'-c+[Stop after count probes. Default is to run until interrupted]:COUNT:_default' \
+'--count=[Stop after count probes. Default is to run until interrupted]:COUNT:_default' \
+'-i+[Seconds between probes. Fractions are accepted, e.g. 0.2]:INTERVAL:_default' \
+'--interval=[Seconds between probes. Fractions are accepted, e.g. 0.2]:INTERVAL:_default' \
+'-W+[Per-probe connect timeout in seconds]:TIMEOUT:_default' \
+'--timeout=[Per-probe connect timeout in seconds]:TIMEOUT:_default' \
+'-w+[Stop the command after this many seconds]:DEADLINE:_default' \
+'--deadline=[Stop the command after this many seconds]:DEADLINE:_default' \
+'-q[Suppress per-probe output and only print the summary]' \
+'--quiet[Suppress per-probe output and only print the summary]' \
+'-h[Print help]' \
+'--help[Print help]' \
+':target -- Target as host\:port:_default' \
+&& ret=0
+;;
+(http)
+_arguments "${_arguments_options[@]}" : \
+'-c+[Stop after count probes. Default is to run until interrupted]:COUNT:_default' \
+'--count=[Stop after count probes. Default is to run until interrupted]:COUNT:_default' \
+'-i+[Seconds between probes. Fractions are accepted, e.g. 0.2]:INTERVAL:_default' \
+'--interval=[Seconds between probes. Fractions are accepted, e.g. 0.2]:INTERVAL:_default' \
+'-W+[Per-probe request timeout in seconds]:TIMEOUT:_default' \
+'--timeout=[Per-probe request timeout in seconds]:TIMEOUT:_default' \
+'-w+[Stop the command after this many seconds]:DEADLINE:_default' \
+'--deadline=[Stop the command after this many seconds]:DEADLINE:_default' \
+'-X+[HTTP method to send]:METHOD:(head get)' \
+'--method=[HTTP method to send]:METHOD:(head get)' \
+'--ok-status=[Treat these HTTP status codes as successful, e.g. 200,204,300-399]:OK_STATUS:_default' \
+'*-H+[Add a request header. Repeat for multiple headers]:HEADERS:_default' \
+'*--header=[Add a request header. Repeat for multiple headers]:HEADERS:_default' \
+'-L[Follow HTTP redirects]' \
+'--location[Follow HTTP redirects]' \
+'-k[Skip TLS certificate verification]' \
+'--insecure[Skip TLS certificate verification]' \
+'-q[Suppress per-probe output and only print the summary]' \
+'--quiet[Suppress per-probe output and only print the summary]' \
+'-h[Print help]' \
+'--help[Print help]' \
+':target -- Target URL. If no scheme is given, http\:// is assumed:_default' \
+&& ret=0
+;;
+(gtp)
+_arguments "${_arguments_options[@]}" : \
+'-h[Print help]' \
+'--help[Print help]' \
+":: :_clockping__subcmd__gtp_commands" \
+"*::: :->gtp" \
+&& ret=0
+
+    case $state in
+    (gtp)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:clockping-gtp-command-$line[1]:"
+        case $line[1] in
+            (v1u)
+_arguments "${_arguments_options[@]}" : \
+'-c+[Stop after count probes. Default is to run until interrupted]:COUNT:_default' \
+'--count=[Stop after count probes. Default is to run until interrupted]:COUNT:_default' \
+'-i+[Seconds between probes. Fractions are accepted, e.g. 0.2]:INTERVAL:_default' \
+'--interval=[Seconds between probes. Fractions are accepted, e.g. 0.2]:INTERVAL:_default' \
+'-W+[Per-probe response timeout in seconds]:TIMEOUT:_default' \
+'--timeout=[Per-probe response timeout in seconds]:TIMEOUT:_default' \
+'-w+[Stop the command after this many seconds]:DEADLINE:_default' \
+'--deadline=[Stop the command after this many seconds]:DEADLINE:_default' \
+'--port=[Override the protocol default UDP port]:PORT:_default' \
+'-q[Suppress per-probe output and only print the summary]' \
+'--quiet[Suppress per-probe output and only print the summary]' \
+'-h[Print help]' \
+'--help[Print help]' \
+':target -- Target host or IP address:_default' \
+&& ret=0
+;;
+(v1c)
+_arguments "${_arguments_options[@]}" : \
+'-c+[Stop after count probes. Default is to run until interrupted]:COUNT:_default' \
+'--count=[Stop after count probes. Default is to run until interrupted]:COUNT:_default' \
+'-i+[Seconds between probes. Fractions are accepted, e.g. 0.2]:INTERVAL:_default' \
+'--interval=[Seconds between probes. Fractions are accepted, e.g. 0.2]:INTERVAL:_default' \
+'-W+[Per-probe response timeout in seconds]:TIMEOUT:_default' \
+'--timeout=[Per-probe response timeout in seconds]:TIMEOUT:_default' \
+'-w+[Stop the command after this many seconds]:DEADLINE:_default' \
+'--deadline=[Stop the command after this many seconds]:DEADLINE:_default' \
+'--port=[Override the protocol default UDP port]:PORT:_default' \
+'-q[Suppress per-probe output and only print the summary]' \
+'--quiet[Suppress per-probe output and only print the summary]' \
+'-h[Print help]' \
+'--help[Print help]' \
+':target -- Target host or IP address:_default' \
+&& ret=0
+;;
+(v2c)
+_arguments "${_arguments_options[@]}" : \
+'-c+[Stop after count probes. Default is to run until interrupted]:COUNT:_default' \
+'--count=[Stop after count probes. Default is to run until interrupted]:COUNT:_default' \
+'-i+[Seconds between probes. Fractions are accepted, e.g. 0.2]:INTERVAL:_default' \
+'--interval=[Seconds between probes. Fractions are accepted, e.g. 0.2]:INTERVAL:_default' \
+'-W+[Per-probe response timeout in seconds]:TIMEOUT:_default' \
+'--timeout=[Per-probe response timeout in seconds]:TIMEOUT:_default' \
+'-w+[Stop the command after this many seconds]:DEADLINE:_default' \
+'--deadline=[Stop the command after this many seconds]:DEADLINE:_default' \
+'--port=[Override the protocol default UDP port]:PORT:_default' \
+'-q[Suppress per-probe output and only print the summary]' \
+'--quiet[Suppress per-probe output and only print the summary]' \
+'-h[Print help]' \
+'--help[Print help]' \
+':target -- Target host or IP address:_default' \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" : \
+":: :_clockping__subcmd__gtp__subcmd__help_commands" \
+"*::: :->help" \
+&& ret=0
+
+    case $state in
+    (help)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:clockping-gtp-help-command-$line[1]:"
+        case $line[1] in
+            (v1u)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(v1c)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(v2c)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+        esac
+    ;;
+esac
+;;
+(completion)
+_arguments "${_arguments_options[@]}" : \
+'-h[Print help]' \
+'--help[Print help]' \
+':shell -- Shell to generate completion script for:(bash elvish fish powershell zsh)' \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" : \
+":: :_clockping__subcmd__help_commands" \
+"*::: :->help" \
+&& ret=0
+
+    case $state in
+    (help)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:clockping-help-command-$line[1]:"
+        case $line[1] in
+            (icmp)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(tcp)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(http)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(gtp)
+_arguments "${_arguments_options[@]}" : \
+":: :_clockping__subcmd__help__subcmd__gtp_commands" \
+"*::: :->gtp" \
+&& ret=0
+
+    case $state in
+    (gtp)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:clockping-help-gtp-command-$line[1]:"
+        case $line[1] in
+            (v1u)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(v1c)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(v2c)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+(completion)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+        esac
+    ;;
+esac
+}
+
+(( $+functions[_clockping_commands] )) ||
+_clockping_commands() {
+    local commands; commands=(
+'icmp:ICMP echo ping. Native by default; use --pinger to wrap system ping' \
+'tcp:TCP connect ping' \
+'http:HTTP request ping. HEAD by default; use -X GET to send GET' \
+'gtp:GTP Echo ping' \
+'completion:Generate a shell completion script' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'clockping commands' commands "$@"
+}
+(( $+functions[_clockping__subcmd__completion_commands] )) ||
+_clockping__subcmd__completion_commands() {
+    local commands; commands=()
+    _describe -t commands 'clockping completion commands' commands "$@"
+}
+(( $+functions[_clockping__subcmd__gtp_commands] )) ||
+_clockping__subcmd__gtp_commands() {
+    local commands; commands=(
+'v1u:GTPv1-U Echo Request, default UDP/2152' \
+'v1c:GTPv1-C Echo Request, default UDP/2123' \
+'v2c:GTPv2-C Echo Request, default UDP/2123' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'clockping gtp commands' commands "$@"
+}
+(( $+functions[_clockping__subcmd__gtp__subcmd__help_commands] )) ||
+_clockping__subcmd__gtp__subcmd__help_commands() {
+    local commands; commands=(
+'v1u:GTPv1-U Echo Request, default UDP/2152' \
+'v1c:GTPv1-C Echo Request, default UDP/2123' \
+'v2c:GTPv2-C Echo Request, default UDP/2123' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'clockping gtp help commands' commands "$@"
+}
+(( $+functions[_clockping__subcmd__gtp__subcmd__help__subcmd__help_commands] )) ||
+_clockping__subcmd__gtp__subcmd__help__subcmd__help_commands() {
+    local commands; commands=()
+    _describe -t commands 'clockping gtp help help commands' commands "$@"
+}
+(( $+functions[_clockping__subcmd__gtp__subcmd__help__subcmd__v1c_commands] )) ||
+_clockping__subcmd__gtp__subcmd__help__subcmd__v1c_commands() {
+    local commands; commands=()
+    _describe -t commands 'clockping gtp help v1c commands' commands "$@"
+}
+(( $+functions[_clockping__subcmd__gtp__subcmd__help__subcmd__v1u_commands] )) ||
+_clockping__subcmd__gtp__subcmd__help__subcmd__v1u_commands() {
+    local commands; commands=()
+    _describe -t commands 'clockping gtp help v1u commands' commands "$@"
+}
+(( $+functions[_clockping__subcmd__gtp__subcmd__help__subcmd__v2c_commands] )) ||
+_clockping__subcmd__gtp__subcmd__help__subcmd__v2c_commands() {
+    local commands; commands=()
+    _describe -t commands 'clockping gtp help v2c commands' commands "$@"
+}
+(( $+functions[_clockping__subcmd__gtp__subcmd__v1c_commands] )) ||
+_clockping__subcmd__gtp__subcmd__v1c_commands() {
+    local commands; commands=()
+    _describe -t commands 'clockping gtp v1c commands' commands "$@"
+}
+(( $+functions[_clockping__subcmd__gtp__subcmd__v1u_commands] )) ||
+_clockping__subcmd__gtp__subcmd__v1u_commands() {
+    local commands; commands=()
+    _describe -t commands 'clockping gtp v1u commands' commands "$@"
+}
+(( $+functions[_clockping__subcmd__gtp__subcmd__v2c_commands] )) ||
+_clockping__subcmd__gtp__subcmd__v2c_commands() {
+    local commands; commands=()
+    _describe -t commands 'clockping gtp v2c commands' commands "$@"
+}
+(( $+functions[_clockping__subcmd__help_commands] )) ||
+_clockping__subcmd__help_commands() {
+    local commands; commands=(
+'icmp:ICMP echo ping. Native by default; use --pinger to wrap system ping' \
+'tcp:TCP connect ping' \
+'http:HTTP request ping. HEAD by default; use -X GET to send GET' \
+'gtp:GTP Echo ping' \
+'completion:Generate a shell completion script' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'clockping help commands' commands "$@"
+}
+(( $+functions[_clockping__subcmd__help__subcmd__completion_commands] )) ||
+_clockping__subcmd__help__subcmd__completion_commands() {
+    local commands; commands=()
+    _describe -t commands 'clockping help completion commands' commands "$@"
+}
+(( $+functions[_clockping__subcmd__help__subcmd__gtp_commands] )) ||
+_clockping__subcmd__help__subcmd__gtp_commands() {
+    local commands; commands=(
+'v1u:GTPv1-U Echo Request, default UDP/2152' \
+'v1c:GTPv1-C Echo Request, default UDP/2123' \
+'v2c:GTPv2-C Echo Request, default UDP/2123' \
+    )
+    _describe -t commands 'clockping help gtp commands' commands "$@"
+}
+(( $+functions[_clockping__subcmd__help__subcmd__gtp__subcmd__v1c_commands] )) ||
+_clockping__subcmd__help__subcmd__gtp__subcmd__v1c_commands() {
+    local commands; commands=()
+    _describe -t commands 'clockping help gtp v1c commands' commands "$@"
+}
+(( $+functions[_clockping__subcmd__help__subcmd__gtp__subcmd__v1u_commands] )) ||
+_clockping__subcmd__help__subcmd__gtp__subcmd__v1u_commands() {
+    local commands; commands=()
+    _describe -t commands 'clockping help gtp v1u commands' commands "$@"
+}
+(( $+functions[_clockping__subcmd__help__subcmd__gtp__subcmd__v2c_commands] )) ||
+_clockping__subcmd__help__subcmd__gtp__subcmd__v2c_commands() {
+    local commands; commands=()
+    _describe -t commands 'clockping help gtp v2c commands' commands "$@"
+}
+(( $+functions[_clockping__subcmd__help__subcmd__help_commands] )) ||
+_clockping__subcmd__help__subcmd__help_commands() {
+    local commands; commands=()
+    _describe -t commands 'clockping help help commands' commands "$@"
+}
+(( $+functions[_clockping__subcmd__help__subcmd__http_commands] )) ||
+_clockping__subcmd__help__subcmd__http_commands() {
+    local commands; commands=()
+    _describe -t commands 'clockping help http commands' commands "$@"
+}
+(( $+functions[_clockping__subcmd__help__subcmd__icmp_commands] )) ||
+_clockping__subcmd__help__subcmd__icmp_commands() {
+    local commands; commands=()
+    _describe -t commands 'clockping help icmp commands' commands "$@"
+}
+(( $+functions[_clockping__subcmd__help__subcmd__tcp_commands] )) ||
+_clockping__subcmd__help__subcmd__tcp_commands() {
+    local commands; commands=()
+    _describe -t commands 'clockping help tcp commands' commands "$@"
+}
+(( $+functions[_clockping__subcmd__http_commands] )) ||
+_clockping__subcmd__http_commands() {
+    local commands; commands=()
+    _describe -t commands 'clockping http commands' commands "$@"
+}
+(( $+functions[_clockping__subcmd__icmp_commands] )) ||
+_clockping__subcmd__icmp_commands() {
+    local commands; commands=()
+    _describe -t commands 'clockping icmp commands' commands "$@"
+}
+(( $+functions[_clockping__subcmd__tcp_commands] )) ||
+_clockping__subcmd__tcp_commands() {
+    local commands; commands=()
+    _describe -t commands 'clockping tcp commands' commands "$@"
+}
+
+if [ "$funcstack[1]" = "_clockping" ]; then
+    _clockping "$@"
+else
+    compdef _clockping clockping
+fi

@@ -33,6 +33,15 @@ pub enum Command {
     Http(HttpCommand),
     /// GTP Echo ping.
     Gtp(GtpCommand),
+    /// Generate a shell completion script.
+    Completion(CompletionCommand),
+}
+
+#[derive(Debug, Args)]
+pub struct CompletionCommand {
+    /// Shell to generate completion script for.
+    #[arg(value_enum)]
+    pub shell: clap_complete::Shell,
 }
 
 #[derive(Debug, Args)]
@@ -259,6 +268,9 @@ fn parse_status_code(value: &str) -> Result<u16, String> {
 
 #[cfg(test)]
 mod tests {
+    use clap::Parser;
+    use clap_complete::Shell;
+
     use super::*;
 
     #[test]
@@ -294,5 +306,15 @@ mod tests {
         assert!(parse_status_ranges("99").is_err());
         assert!(parse_status_ranges("300-200").is_err());
         assert!(parse_status_ranges("").is_err());
+    }
+
+    #[test]
+    fn parse_completion_shell() {
+        let cli = Cli::parse_from(["clockping", "completion", "bash"]);
+
+        assert!(matches!(
+            cli.command,
+            Command::Completion(CompletionCommand { shell: Shell::Bash })
+        ));
     }
 }

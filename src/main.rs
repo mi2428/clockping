@@ -5,10 +5,14 @@ mod protocol;
 mod runner;
 mod timefmt;
 
-use std::process::ExitCode;
+use std::{
+    io::{self, Write},
+    process::ExitCode,
+};
 
 use anyhow::Context;
-use clap::Parser;
+use clap::{CommandFactory, Parser};
+use clap_complete::generate;
 
 use crate::{
     cli::{Cli, Command},
@@ -43,6 +47,12 @@ async fn run() -> anyhow::Result<ExitCode> {
     let mut exit_code = ExitCode::SUCCESS;
 
     match cli.command {
+        Command::Completion(command) => {
+            let mut cli_command = Cli::command();
+            let mut script = Vec::new();
+            generate(command.shell, &mut cli_command, "clockping", &mut script);
+            io::stdout().write_all(&script)?;
+        }
         Command::Icmp(command) => match icmp::parse_engine(command.args)? {
             IcmpEngine::External(external) => {
                 let output = make_output(timestamp, timestamp_format.clone(), json, false);

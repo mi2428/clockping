@@ -134,6 +134,23 @@ fn sigint_interrupts_active_probe() {
 }
 
 #[test]
+fn completion_subcommand_generates_bash_script() {
+    let output = run_clockping_raw(&["completion", "bash"]);
+    let combined = combined_output(&output);
+
+    assert!(
+        output.status.success(),
+        "completion generation failed with status {}\n{}",
+        output.status,
+        combined
+    );
+    assert_contains(&combined, "_clockping");
+    assert_contains(&combined, "tcp");
+    assert_contains(&combined, "http");
+    assert_contains(&combined, "gtp");
+}
+
+#[test]
 #[ignore = "requires docker compose test network"]
 fn docker_compose_e2e() {
     wait_for_tcp("tcp-target", 8080);

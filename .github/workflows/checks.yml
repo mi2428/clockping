@@ -58,7 +58,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: target
-          key: ${{ runner.os }}-${{ github.job }}-target-${{ hashFiles('rust-toolchain.toml', 'Cargo.toml', 'Cargo.lock', 'src/**', 'tests/**') }}
+          key: ${{ runner.os }}-${{ github.job }}-target-${{ hashFiles('rust-toolchain.toml', 'Cargo.toml', 'Cargo.lock', 'Makefile', 'src/**', 'tests/**', 'completions/**') }}
           restore-keys: |
             ${{ runner.os }}-${{ github.job }}-target-
 
@@ -70,6 +70,9 @@ jobs:
 
       - name: Build rustdoc
         run: make doc
+
+      - name: Check shell completions
+        run: make _completions CHECK_ONLY=1
 
   test:
     name: Test
@@ -104,7 +107,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: target
-          key: ${{ runner.os }}-${{ github.job }}-target-${{ hashFiles('rust-toolchain.toml', 'Cargo.toml', 'Cargo.lock', 'src/**', 'tests/**') }}
+          key: ${{ runner.os }}-${{ github.job }}-target-${{ hashFiles('rust-toolchain.toml', 'Cargo.toml', 'Cargo.lock', 'Makefile', 'src/**', 'tests/**', 'completions/**') }}
           restore-keys: |
             ${{ runner.os }}-${{ github.job }}-target-
 
@@ -185,7 +188,7 @@ jobs:
           path: |
             .cargo-linux/${{ matrix.arch }}
             target/linux-${{ matrix.arch }}-${{ env.LINUX_CACHE_KEY }}
-          key: ${{ runner.os }}-${{ matrix.arch }}-${{ env.LINUX_CACHE_KEY }}-dist-${{ hashFiles('rust-toolchain.toml', 'Cargo.toml', 'Cargo.lock', 'src/**', 'tests/**') }}
+          key: ${{ runner.os }}-${{ matrix.arch }}-${{ env.LINUX_CACHE_KEY }}-dist-${{ hashFiles('rust-toolchain.toml', 'Cargo.toml', 'Cargo.lock', 'Makefile', 'src/**', 'tests/**', 'completions/**') }}
           restore-keys: |
             ${{ runner.os }}-${{ matrix.arch }}-${{ env.LINUX_CACHE_KEY }}-dist-
 
