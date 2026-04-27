@@ -1,9 +1,11 @@
 use std::{
+    fs,
     io::{BufRead, BufReader, Read, Write},
     net::{Shutdown, TcpListener, TcpStream, ToSocketAddrs, UdpSocket},
     process::{Child, Command, ExitStatus, Output as ProcessOutput, Stdio},
+    sync::mpsc,
     thread,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use serde_json::Value;
@@ -175,6 +177,142 @@ fn icmp_help_lists_native_options() {
             "help should describe user-facing options, not parser internals\n{combined}"
         );
     }
+}
+
+#[test]
+fn writes_jsonl_metrics_file_without_replacing_stdout() {
+    let target = spawn_tcp_acceptor(2);
+    let metrics_file = temp_metrics_path("jsonl");
+    let metrics_file_arg = metrics_file.to_string_lossy();
+
+    let output = run_clockping(&[
+        "tcp",
+        "--metrics.file",
+        metrics_file_arg.as_ref(),
+        "-c",
+        "2",
+        "-i",
+        "0",
+        "-W",
+        "1",
+        &target,
+    ]);
+
+    assert_contains(&output, "2 probes transmitted, 2 replies received");
+    let metrics = fs::read_to_string(&metrics_file).expect("read metrics file");
+    let lines = metrics.lines().collect::<Vec<_>>();
+    assert_eq!(
+        lines.len(),
+        2,
+        "expected one metrics line per probe: {metrics}"
+    );
+    let first: Value = serde_json::from_str(lines[0]).expect("parse first metrics line");
+    let second: Value = serde_json::from_str(lines[1]).expect("parse second metrics line");
+    assert_eq!(first["schema_version"], 1);
+    assert_eq!(first["event"], "interval");
+    assert_eq!(first["protocol"], "tcp");
+    assert_eq!(first["sent"], 1);
+    assert_eq!(second["sent"], 2);
+    assert_eq!(second["received"], 2);
+    let _ = fs::remove_file(metrics_file);
+}
+
+#[test]
+fn writes_prometheus_metrics_file_with_labels() {
+    let target = spawn_tcp_acceptor(1);
+    let metrics_file = temp_metrics_path("prom");
+    let metrics_file_arg = metrics_file.to_string_lossy();
+
+    let output = run_clockping(&[
+        "--metrics.file",
+        metrics_file_arg.as_ref(),
+        "--metrics.format",
+        "prometheus",
+        "--metrics.prefix",
+        "nettest",
+        "--metrics.label",
+        "site=ci",
+        "tcp",
+        "-c",
+        "1",
+        "-W",
+        "1",
+        &target,
+    ]);
+
+    assert_contains(&output, "1 probes transmitted, 1 replies received");
+    let metrics = fs::read_to_string(&metrics_file).expect("read metrics file");
+    assert_contains(
+        &metrics,
+        "nettest_probe_sent{site=\"ci\",protocol=\"tcp\",target=\"",
+    );
+    assert_contains(&metrics, "nettest_probe_rtt_seconds");
+    assert!(!metrics.contains(r#""event":"interval""#));
+    let _ = fs::remove_file(metrics_file);
+}
+
+#[test]
+fn pushes_prometheus_metrics_to_pushgateway() {
+    let target = spawn_tcp_acceptor(1);
+    let (push_url, requests) = spawn_pushgateway_capture();
+
+    let output = run_clockping(&[
+        "--push.url",
+        &push_url,
+        "--push.job",
+        "clock job",
+        "--push.label",
+        "scenario=push test",
+        "tcp",
+        "-c",
+        "1",
+        "-W",
+        "1",
+        &target,
+    ]);
+
+    assert_contains(&output, "1 probes transmitted, 1 replies received");
+    let request = requests
+        .recv_timeout(Duration::from_secs(3))
+        .expect("Pushgateway request was not captured");
+    assert_contains(
+        &request.request_line,
+        "PUT /metrics/job/clock%20job/scenario/push%20test HTTP/1.1",
+    );
+    assert_contains(
+        &request.body,
+        "clockping_probe_sent{protocol=\"tcp\",target=\"",
+    );
+    assert_contains(&request.body, "clockping_probe_up");
+}
+
+#[test]
+fn pushes_window_metrics_to_pushgateway() {
+    let target = spawn_tcp_acceptor(2);
+    let (push_url, requests) = spawn_pushgateway_capture();
+
+    let output = run_clockping(&[
+        "--push.url",
+        &push_url,
+        "--push.interval",
+        "10s",
+        "tcp",
+        "-c",
+        "2",
+        "-i",
+        "0",
+        "-W",
+        "1",
+        &target,
+    ]);
+
+    assert_contains(&output, "2 probes transmitted, 2 replies received");
+    let request = requests
+        .recv_timeout(Duration::from_secs(3))
+        .expect("Pushgateway window request was not captured");
+    assert_contains(&request.request_line, "PUT /metrics/job/clockping HTTP/1.1");
+    assert_contains(&request.body, "clockping_window_samples");
+    assert_contains(&request.body, "clockping_window_replies");
 }
 
 #[test]
@@ -561,6 +699,101 @@ fn unused_local_tcp_addr() -> String {
     let addr = listener.local_addr().expect("failed to read local address");
     drop(listener);
     addr.to_string()
+}
+
+fn spawn_tcp_acceptor(accepts: usize) -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("failed to bind TCP acceptor");
+    let addr = listener
+        .local_addr()
+        .expect("failed to read TCP acceptor address");
+    thread::spawn(move || {
+        for _ in 0..accepts {
+            if listener.accept().is_err() {
+                break;
+            }
+        }
+    });
+    addr.to_string()
+}
+
+#[derive(Debug)]
+struct CapturedHttpRequest {
+    request_line: String,
+    body: String,
+}
+
+fn spawn_pushgateway_capture() -> (String, mpsc::Receiver<CapturedHttpRequest>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("failed to bind Pushgateway capture");
+    let addr = listener
+        .local_addr()
+        .expect("failed to read Pushgateway capture address");
+    let (tx, rx) = mpsc::channel();
+
+    thread::spawn(move || {
+        let Ok((mut stream, _peer)) = listener.accept() else {
+            return;
+        };
+        stream
+            .set_read_timeout(Some(Duration::from_secs(3)))
+            .expect("failed to set Pushgateway capture read timeout");
+
+        let mut buffer = Vec::new();
+        let mut chunk = [0_u8; 1024];
+        let header_end = loop {
+            match stream.read(&mut chunk) {
+                Ok(0) => return,
+                Ok(read) => {
+                    buffer.extend_from_slice(&chunk[..read]);
+                    if let Some(index) = find_subsequence(&buffer, b"\r\n\r\n") {
+                        break index + 4;
+                    }
+                }
+                Err(_) => return,
+            }
+        };
+
+        let headers = String::from_utf8_lossy(&buffer[..header_end]).to_string();
+        let content_length = headers.lines().find_map(parse_content_length).unwrap_or(0);
+        while buffer.len() < header_end + content_length {
+            match stream.read(&mut chunk) {
+                Ok(0) => break,
+                Ok(read) => buffer.extend_from_slice(&chunk[..read]),
+                Err(_) => break,
+            }
+        }
+
+        let body_end = (header_end + content_length).min(buffer.len());
+        let body = String::from_utf8_lossy(&buffer[header_end..body_end]).to_string();
+        let request_line = headers.lines().next().unwrap_or_default().to_string();
+        let _ = stream.write_all(b"HTTP/1.1 202 Accepted\r\nContent-Length: 0\r\n\r\n");
+        let _ = tx.send(CapturedHttpRequest { request_line, body });
+    });
+
+    (format!("http://{addr}"), rx)
+}
+
+fn parse_content_length(line: &str) -> Option<usize> {
+    let (name, value) = line.split_once(':')?;
+    name.eq_ignore_ascii_case("content-length")
+        .then(|| value.trim().parse::<usize>().ok())
+        .flatten()
+}
+
+fn find_subsequence(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    haystack
+        .windows(needle.len())
+        .position(|window| window == needle)
+}
+
+fn temp_metrics_path(extension: &str) -> std::path::PathBuf {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system time should be after unix epoch")
+        .as_nanos();
+    std::env::temp_dir().join(format!(
+        "clockping-metrics-{}-{nonce}.{extension}",
+        std::process::id()
+    ))
 }
 
 fn wait_for_child(child: &mut Child, timeout: Duration) -> ExitStatus {
