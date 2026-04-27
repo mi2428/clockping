@@ -9,12 +9,14 @@ RUSTC            ?= $(shell if command -v $(RUSTUP) >/dev/null 2>&1 && $(RUSTUP)
 RUSTDOC          ?= $(shell if command -v $(RUSTUP) >/dev/null 2>&1 && $(RUSTUP) which rustdoc --toolchain $(RUSTUP_TOOLCHAIN) >/dev/null 2>&1; then $(RUSTUP) which rustdoc --toolchain $(RUSTUP_TOOLCHAIN); else command -v rustdoc; fi)
 RUST_BINDIR      := $(patsubst %/,%,$(dir $(CARGO)))
 CARGO_ENV        := PATH="$(RUST_BINDIR):$(PATH)" RUSTC="$(RUSTC)" RUSTDOC="$(RUSTDOC)"
+RELEASE_MAKE     ?= $(MAKE)
 
 INSTALL ?= install
 DOCKER  ?= docker
 COMPOSE ?= $(shell if $(DOCKER) compose version >/dev/null 2>&1; then printf '%s compose' '$(DOCKER)'; elif command -v docker-compose >/dev/null 2>&1; then command -v docker-compose; else printf '%s compose' '$(DOCKER)'; fi)
 MULTIPASS ?= multipass
 GIT_REMOTE ?= origin
+DOCKER_PLATFORMS ?= linux/amd64,linux/arm64
 
 APP            := clockping
 BINDIR         := bin
@@ -240,8 +242,11 @@ clean: ## Remove local build artifacts
 ##@ Distribution
 
 .PHONY: release
-release: ## Tag and push a GitHub release tag. Requires TAG=vX.Y.Z
-	@TAG="$(TAG)" GIT_REMOTE="$(GIT_REMOTE)" CARGO="$(CARGO)" RUSTC="$(RUSTC)" RUSTDOC="$(RUSTDOC)" PATH="$(RUST_BINDIR):$(PATH)" bash scripts/release.sh
+release: ## Build dist, push multi-arch Docker image, and publish GitHub release. Requires TAG=vX.Y.Z
+	@TAG="$(TAG)" GIT_REMOTE="$(GIT_REMOTE)" DOCKER="$(DOCKER)" DOCKER_PLATFORMS="$(DOCKER_PLATFORMS)" OS="$(OS)" ARCH="$(ARCH)" DISTDIR="$(DISTDIR)" MAKE="$(RELEASE_MAKE)" CARGO="$(CARGO)" RUSTC="$(RUSTC)" RUSTDOC="$(RUSTDOC)" PATH="$(RUST_BINDIR):$(PATH)" bash scripts/release.sh
+
+.PHONY: releae
+releae: release
 
 .PHONY: dist
 dist: ## Build release binaries into dist/. Use OS=darwin,linux and ARCH=amd64,arm64
@@ -402,6 +407,8 @@ help: ## Show this help message
 	@printf "\n\033[1mVariables:\033[0m\n"
 	@printf "  \033[36mTAG\033[0m                    Release tag for \033[36mmake release\033[0m, for example \033[36mv1.0.0\033[0m\n"
 	@printf "  \033[36mGIT_REMOTE\033[0m             Release git remote, defaults to \033[36m%s\033[0m\n" "$(GIT_REMOTE)"
+	@printf "  \033[36mDOCKER_PLATFORMS\033[0m       Release image platforms, defaults to \033[36m%s\033[0m\n" "$(DOCKER_PLATFORMS)"
+	@printf "  \033[36mDOCKER_IMAGE\033[0m           Release image name, defaults to \033[36mghcr.io/<owner>/<repo>\033[0m\n"
 	@printf "  \033[36mOS\033[0m                     Release OS list: \033[36mdarwin,linux\033[0m\n"
 	@printf "  \033[36mARCH\033[0m                   Release arch list: \033[36mamd64,arm64\033[0m\n"
 	@printf "  \033[36mINSTALL_BINDIR\033[0m         Install directory, defaults to \033[36m%s\033[0m\n" "$(INSTALL_BINDIR)"
@@ -413,6 +420,6 @@ help: ## Show this help message
 	@printf "  \033[36m%-42s\033[0m # to check formatting without writing\n" "make fmt CHECK_ONLY=1"
 	@printf "  \033[36m%-42s\033[0m # to build and install the host binary and completions\n" "make install COMPLETION=1"
 	@printf "  \033[36m%-42s\033[0m # to run all local quality gates and Docker E2E\n" "make check e2e"
-	@printf "  \033[36m%-42s\033[0m # to push the release tag that triggers CI release\n" "make release TAG=v1.0.0"
+	@printf "  \033[36m%-42s\033[0m # to build and publish release artifacts locally\n" "make release TAG=v1.0.0"
 	@printf "  \033[36m%-42s\033[0m # to build release binaries and checksums\n" "make dist OS=darwin,linux ARCH=amd64,arm64"
 	@printf "  \033[36m%-42s\033[0m # to prepare a Linux VM for manual testing\n" "make multipass"

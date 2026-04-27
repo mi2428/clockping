@@ -147,3 +147,17 @@ network, then runs the ignored Rust E2E test in `tests/e2e_test.rs`
 against those targets. It covers
 native ICMP, external `--pinger`, TCP, HTTP, GTPv1-U, GTPv1-C, GTPv2-C, and JSON
 timestamp formatting.
+
+## Release
+
+Release builds are driven from a local machine to avoid spending GitHub Actions
+compute on release artifact and image builds:
+
+```sh
+make release TAG=v1.0.0
+```
+
+The release target builds `dist/` binaries and checksums, pushes the multi-arch
+scratch image to GHCR, then creates or updates the GitHub Release with the local
+artifacts. It expects `gh` to be authenticated and Docker Buildx to be able to
+push `linux/amd64,linux/arm64` images.

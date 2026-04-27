@@ -2,10 +2,12 @@
 set -Eeuo pipefail
 
 readonly SEMVER_TAG_RE='^v[0-9]+[.][0-9]+[.][0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?([+][0-9A-Za-z][0-9A-Za-z.-]*)?$'
+readonly APP=clockping
 
 release_created_tag=0
 release_pushed_created_tag=0
 release_tag=
+docker_image_tags=()
 
 fail() {
   echo "release: $*" >&2
@@ -17,6 +19,12 @@ run() {
   printf ' %q' "$@"
   printf '\n'
   "$@"
+}
+
+require_tool() {
+  local tool="$1"
+
+  command -v "${tool}" >/dev/null 2>&1 || fail "${tool} is required for local release publishing"
 }
 
 manifest_value_at_ref() {
@@ -36,6 +44,163 @@ require_clean_worktree() {
   fi
 }
 
+repository_slug() {
+  local remote="$1"
+  local repo="${GH_REPO:-${GITHUB_REPOSITORY:-}}"
+  local url
+
+  if [[ -z "${repo}" ]]; then
+    url="$(git config --get "remote.${remote}.url" || true)"
+    case "${url}" in
+      git@github.com:*) repo="${url#git@github.com:}" ;;
+      https://github.com/*) repo="${url#https://github.com/}" ;;
+      ssh://git@github.com/*) repo="${url#ssh://git@github.com/}" ;;
+      *) fail "could not infer GitHub repository from remote ${remote}; set GH_REPO=owner/repo" ;;
+    esac
+  fi
+
+  repo="${repo#https://github.com/}"
+  repo="${repo%.git}"
+
+  [[ "${repo}" == */* ]] || fail "GitHub repository must look like owner/repo, got ${repo}"
+  printf '%s\n' "${repo}"
+}
+
+lowercase() {
+  printf '%s' "$1" | tr '[:upper:]' '[:lower:]'
+}
+
+is_prerelease_tag() {
+  [[ "$1" == *-* ]]
+}
+
+release_build_date() {
+  date -u +%Y-%m-%dT%H:%M:%SZ
+}
+
+require_release_tools() {
+  require_tool git
+  require_tool gh
+  require_tool "${DOCKER:-docker}"
+  require_tool shasum
+}
+
+build_dist() {
+  local os="${OS:-darwin,linux}"
+  local arch="${ARCH:-amd64,arm64}"
+
+  run "${MAKE:-make}" dist OS="${os}" ARCH="${arch}"
+}
+
+ensure_buildx_builder() {
+  local docker="${DOCKER:-docker}"
+
+  if "${docker}" buildx inspect >/dev/null 2>&1; then
+    return
+  fi
+
+  run "${docker}" buildx create --use --name "${APP}-release-builder"
+}
+
+build_and_push_docker_image() {
+  local tag="$1"
+  local repository="$2"
+  local image="${DOCKER_IMAGE:-${IMAGE:-}}"
+  local platforms="${DOCKER_PLATFORMS:-linux/amd64,linux/arm64}"
+  local docker="${DOCKER:-docker}"
+  local git_commit git_commit_date git_describe build_date image_tag
+  local tag_args=()
+
+  if [[ -z "${image}" ]]; then
+    image="ghcr.io/$(lowercase "${repository}")"
+  fi
+
+  docker_image_tags=("${image}:${tag}")
+  if ! is_prerelease_tag "${tag}"; then
+    docker_image_tags+=("${image}:latest")
+  fi
+
+  for image_tag in "${docker_image_tags[@]}"; do
+    tag_args+=(--tag "${image_tag}")
+  done
+
+  git_commit="$(git rev-parse HEAD)"
+  git_commit_date="$(git show -s --format=%cI HEAD)"
+  git_describe="$(git describe --tags --always --dirty=-dirty)"
+  build_date="$(release_build_date)"
+
+  ensure_buildx_builder
+  run "${docker}" buildx build \
+    --platform "${platforms}" \
+    --target release \
+    --push \
+    --label "org.opencontainers.image.source=https://github.com/${repository}" \
+    --label "org.opencontainers.image.revision=${git_commit}" \
+    --label "org.opencontainers.image.version=${tag}" \
+    --build-arg "CLOCKPING_BUILD_DATE=${build_date}" \
+    --build-arg "CLOCKPING_GIT_COMMIT=${git_commit}" \
+    --build-arg "CLOCKPING_GIT_COMMIT_DATE=${git_commit_date}" \
+    --build-arg "CLOCKPING_GIT_DESCRIBE=${git_describe}" \
+    "${tag_args[@]}" \
+    .
+}
+
+write_docker_image_manifest() {
+  local dist_dir="${DISTDIR:-dist}"
+  local image_file="${dist_dir}/docker-images.txt"
+  local image_tag
+
+  mkdir -p "${dist_dir}"
+  {
+    printf 'Docker images published by make release:\n'
+    for image_tag in "${docker_image_tags[@]}"; do
+      printf '%s\n' "${image_tag}"
+    done
+  } > "${image_file}"
+  printf 'Wrote %s\n' "${image_file}"
+}
+
+release_assets() {
+  local dist_dir="${DISTDIR:-dist}"
+  local assets=()
+
+  shopt -s nullglob
+  assets=("${dist_dir}"/*)
+  shopt -u nullglob
+
+  ((${#assets[@]} > 0)) || fail "no release assets found in ${dist_dir}"
+  printf '%s\0' "${assets[@]}"
+}
+
+publish_github_release() {
+  local tag="$1"
+  local release_commit="$2"
+  local repository="$3"
+  local prerelease_flag=()
+  local assets=()
+
+  while IFS= read -r -d '' asset; do
+    assets+=("${asset}")
+  done < <(release_assets)
+
+  if is_prerelease_tag "${tag}"; then
+    prerelease_flag=(--prerelease)
+  fi
+
+  if gh release view "${tag}" --repo "${repository}" >/dev/null 2>&1; then
+    run gh release upload "${tag}" "${assets[@]}" --clobber --repo "${repository}"
+    return
+  fi
+
+  run gh release create "${tag}" \
+    --repo "${repository}" \
+    --target "${release_commit}" \
+    --title "${APP} ${tag}" \
+    --generate-notes \
+    "${prerelease_flag[@]}" \
+    "${assets[@]}"
+}
+
 cleanup() {
   local status=$?
 
@@ -49,7 +214,7 @@ cleanup() {
 main() {
   local tag="${TAG:-}"
   local remote="${GIT_REMOTE:-origin}"
-  local local_oid remote_line remote_oid release_ref
+  local local_oid remote_line remote_oid release_ref release_commit head_commit repository
   local package_name package_version tag_version
 
   [[ -n "${tag}" ]] || fail "TAG is required, for example: make release TAG=v1.0.0"
@@ -60,6 +225,8 @@ main() {
   trap cleanup EXIT
 
   require_clean_worktree
+  require_release_tools
+  repository="$(repository_slug "${remote}")"
 
   remote_line="$(git ls-remote --tags "${remote}" "refs/tags/${tag}" | sed -n '1p')"
   remote_oid="${remote_line%%[[:space:]]*}"
@@ -80,17 +247,27 @@ main() {
   fi
 
   release_ref="refs/tags/${tag}"
+  release_commit="$(git rev-list -n 1 "${tag}")"
+  head_commit="$(git rev-parse HEAD)"
+  [[ "${release_commit}" == "${head_commit}" ]] || fail "${tag} points to ${release_commit}, but HEAD is ${head_commit}; checkout the release commit first"
+
   tag_version="${tag#v}"
   package_name="$(manifest_value_at_ref "${release_ref}" "name")"
   package_version="$(manifest_value_at_ref "${release_ref}" "version")"
 
-  [[ "${package_name}" == "clockping" ]] || fail "Cargo.toml package name is ${package_name}, expected clockping"
+  [[ "${package_name}" == "${APP}" ]] || fail "Cargo.toml package name is ${package_name}, expected ${APP}"
   [[ "${package_version}" == "${tag_version}" ]] || fail "Cargo.toml version ${package_version} does not match ${tag}"
+
+  build_dist
+  build_and_push_docker_image "${tag}" "${repository}"
+  write_docker_image_manifest
 
   run git push "${remote}" "refs/tags/${tag}"
   release_pushed_created_tag=1
 
-  printf 'Pushed release tag %s to %s. GitHub Actions will build release assets and Homebrew formula.\n' "${tag}" "${remote}"
+  publish_github_release "${tag}" "${release_commit}" "${repository}"
+
+  printf 'Published %s from local artifacts and Docker image(s).\n' "${tag}"
 }
 
 main "$@"
