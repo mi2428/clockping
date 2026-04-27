@@ -56,8 +56,8 @@ async fn run() -> anyhow::Result<ExitCode> {
     let cli = Cli::parse_from(cli_args);
     let timestamp = cli.timestamp;
     let timestamp_format = cli.timestamp_format;
-    let json = cli.json;
-    let colored = cli.colored;
+    let json = cli.output_format.is_json();
+    let colored = cli.output_colored;
     let mut exit_code = ExitCode::SUCCESS;
 
     match cli.command {

@@ -42,11 +42,9 @@ pub fn combined_output(output: &ProcessOutput) -> String {
     format!("{stdout}{stderr}")
 }
 
-pub fn unused_local_tcp_addr() -> String {
-    let listener = TcpListener::bind("127.0.0.1:0").expect("failed to bind local TCP listener");
-    let addr = listener.local_addr().expect("failed to read local address");
-    drop(listener);
-    addr.to_string()
+pub fn unreachable_tcp_target() -> &'static str {
+    // TEST-NET-1 avoids the free-local-port race when Rust runs tests in parallel.
+    "192.0.2.1:9"
 }
 
 pub fn spawn_tcp_acceptor(accepts: usize) -> String {

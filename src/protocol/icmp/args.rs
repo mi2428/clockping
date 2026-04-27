@@ -232,6 +232,20 @@ mod tests {
     }
 
     #[test]
+    fn parse_native_timestamp_long_option() {
+        let engine = parse_engine(vec![
+            OsString::from("--timestamp"),
+            OsString::from("127.0.0.1"),
+        ])
+        .unwrap();
+
+        match engine {
+            IcmpEngine::Native(config) => assert!(config.timestamp),
+            IcmpEngine::External(_) => panic!("expected native engine"),
+        }
+    }
+
+    #[test]
     fn parse_native_rejects_unknown_option_with_hint() {
         let error = parse_engine(vec![OsString::from("-M"), OsString::from("do")])
             .unwrap_err()

@@ -30,8 +30,28 @@ Options:
   -D, --timestamp                         Accepted for ping compatibility. clockping timestamps every event by default
   -O, --report-outstanding                Report outstanding reply before sending next packet
       --pinger <PROGRAM>                  Run an external ping-compatible command instead of native ICMP
-  -C, --colored                           Colorize human-readable output with ANSI escape sequences
   -h, --help                              Print help
+  -V, --version                           Print version
+
+Output Options:
+      --ts.preset <PRESET>              Timestamp preset for human-readable output [default: local] [possible values: local, rfc3339, unix, unix-ms, none]
+      --ts.format <FORMAT>              strftime-like timestamp format, similar to `date +\"...\"`
+      --out.format <FORMAT>             Output format [default: text] [possible values: text, json]
+      --out.colored                     Colorize human-readable output with ANSI escape sequences
+
+Metrics Options:
+      --push.url <URL>                    Push interval metrics to a Pushgateway URL
+      --push.delete-on-exit               Delete this Pushgateway grouping key after the run exits
+      --push.interval <DURATION>          Aggregate interval samples before pushing window metrics
+      --push.job <JOB>                    Pushgateway job name
+      --push.label <KEY=VALUE>            Add a Pushgateway grouping label. Repeat for multiple labels
+      --push.retries <N>                  Retry failed Pushgateway requests N times
+      --push.timeout <DURATION>           Pushgateway request timeout
+      --push.user-agent <VALUE>           HTTP User-Agent for Pushgateway requests
+      --metrics.file <PATH>               Write live interval metrics to a file
+      --metrics.format <FORMAT>           Metrics file format: jsonl or prometheus
+      --metrics.label <KEY=VALUE>         Add a Prometheus file sample label. Repeat for multiple labels
+      --metrics.prefix <PREFIX>           Prometheus metric name prefix
 ";
 
 #[derive(Debug, Parser)]
@@ -39,24 +59,44 @@ Options:
     name = "clockping",
     version,
     long_version = version::LONG_VERSION,
-    about = "A multi-protocol, multi-target pinger for watching hosts go dark"
+    about = "A multi-protocol, multi-target pinger for watching hosts go dark",
+    propagate_version = true
 )]
 pub struct Cli {
     /// Timestamp preset for human-readable output.
-    #[arg(long, value_enum, default_value_t = TimestampKind::Local)]
+    #[arg(
+        long = "ts.preset",
+        value_enum,
+        value_name = "PRESET",
+        default_value_t = TimestampKind::Local,
+        global = true,
+        help_heading = "Output Options"
+    )]
     pub timestamp: TimestampKind,
 
     /// strftime-like timestamp format, similar to `date +"..."`.
-    #[arg(long)]
+    #[arg(
+        long = "ts.format",
+        value_name = "FORMAT",
+        global = true,
+        help_heading = "Output Options"
+    )]
     pub timestamp_format: Option<String>,
 
-    /// Emit JSON Lines instead of text.
-    #[arg(long)]
-    pub json: bool,
+    /// Output format.
+    #[arg(
+        long = "out.format",
+        value_enum,
+        value_name = "FORMAT",
+        default_value_t = OutputFormat::Text,
+        global = true,
+        help_heading = "Output Options"
+    )]
+    pub output_format: OutputFormat,
 
     /// Colorize human-readable output with ANSI escape sequences.
-    #[arg(short = 'C', long, global = true)]
-    pub colored: bool,
+    #[arg(long = "out.colored", global = true, help_heading = "Output Options")]
+    pub output_colored: bool,
 
     #[command(flatten)]
     pub metrics: MetricsCliOptions,
@@ -65,6 +105,8 @@ pub struct Cli {
     pub command: Command,
 }
 
+// Metrics flags are stripped from raw argv before Clap parsing so environment
+// defaults can be merged consistently. Keep this schema for help and completions.
 #[allow(dead_code)]
 #[derive(Debug, Args)]
 #[command(next_help_heading = "Metrics Options")]
@@ -116,6 +158,18 @@ pub struct MetricsCliOptions {
     /// Prometheus metric name prefix.
     #[arg(long = "metrics.prefix", global = true, value_name = "PREFIX")]
     pub metrics_prefix: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, clap::ValueEnum)]
+pub enum OutputFormat {
+    Text,
+    Json,
+}
+
+impl OutputFormat {
+    pub fn is_json(self) -> bool {
+        matches!(self, Self::Json)
+    }
 }
 
 #[derive(Debug, Subcommand)]
@@ -500,20 +554,75 @@ mod tests {
     }
 
     #[test]
-    fn colored_is_global() {
-        let cli = Cli::parse_from(["clockping", "tcp", "-C", "one:443"]);
+    fn output_colored_is_global() {
+        let cli = Cli::parse_from(["clockping", "tcp", "--out.colored", "one:443"]);
 
-        assert!(cli.colored);
+        assert!(cli.output_colored);
     }
 
     #[test]
-    fn colored_is_global_for_icmp_raw_args() {
-        let cli = Cli::parse_from(["clockping", "icmp", "-C", "127.0.0.1"]);
+    fn output_colored_is_global_for_icmp_raw_args() {
+        let cli = Cli::parse_from(["clockping", "icmp", "--out.colored", "127.0.0.1"]);
 
-        assert!(cli.colored);
+        assert!(cli.output_colored);
         let Command::Icmp(command) = cli.command else {
             panic!("expected icmp command");
         };
         assert_eq!(command.args, [OsString::from("127.0.0.1")]);
+    }
+
+    #[test]
+    fn icmp_timestamp_long_option_is_native_arg() {
+        let cli = Cli::parse_from(["clockping", "icmp", "--timestamp", "127.0.0.1"]);
+
+        let Command::Icmp(command) = cli.command else {
+            panic!("expected icmp command");
+        };
+        assert_eq!(
+            command.args,
+            [OsString::from("--timestamp"), OsString::from("127.0.0.1")]
+        );
+    }
+
+    #[test]
+    fn output_options_are_global_for_modes() {
+        let cli = Cli::parse_from([
+            "clockping",
+            "icmp",
+            "--ts.preset",
+            "none",
+            "--out.format",
+            "json",
+            "127.0.0.1",
+        ]);
+
+        assert_eq!(cli.timestamp, TimestampKind::None);
+        assert_eq!(cli.output_format, OutputFormat::Json);
+        let Command::Icmp(command) = cli.command else {
+            panic!("expected icmp command");
+        };
+        assert_eq!(command.args, [OsString::from("127.0.0.1")]);
+
+        let cli = Cli::parse_from(["clockping", "tcp", "--ts.preset", "unix-ms", "one:443"]);
+
+        assert_eq!(cli.timestamp, TimestampKind::UnixMs);
+    }
+
+    #[test]
+    fn removed_output_option_aliases_are_rejected() {
+        for argv in [
+            &["clockping", "--timestamp", "none", "tcp", "one:443"][..],
+            &["clockping", "--timestamp-format", "STAMP", "tcp", "one:443"][..],
+            &["clockping", "--timestamp.preset", "none", "tcp", "one:443"][..],
+            &["clockping", "--timestamp.format", "STAMP", "tcp", "one:443"][..],
+            &["clockping", "--json", "tcp", "one:443"][..],
+            &["clockping", "--colored", "tcp", "one:443"][..],
+            &["clockping", "--output.format", "json", "tcp", "one:443"][..],
+            &["clockping", "--output.color", "always", "tcp", "one:443"][..],
+            &["clockping", "--out.color", "always", "tcp", "one:443"][..],
+            &["clockping", "--out.colored", "always", "tcp", "one:443"][..],
+        ] {
+            assert!(Cli::try_parse_from(argv).is_err());
+        }
     }
 }

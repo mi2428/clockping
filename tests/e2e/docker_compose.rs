@@ -24,7 +24,7 @@ fn docker_compose_e2e() {
     wait_for_gtp(GtpMode::V2, "gtp-v2c-target", 2123);
 
     let tcp_output = run_clockping(&[
-        "--timestamp",
+        "--ts.preset",
         "none",
         "tcp",
         "-c",
@@ -37,7 +37,7 @@ fn docker_compose_e2e() {
     assert_contains(&tcp_output, "1 probes transmitted, 1 replies received");
 
     let http_output = run_clockping(&[
-        "--timestamp",
+        "--ts.preset",
         "none",
         "http",
         "-c",
@@ -51,9 +51,10 @@ fn docker_compose_e2e() {
     assert_contains(&http_output, "1 probes transmitted, 1 replies received");
 
     let json_output = run_clockping(&[
-        "--timestamp-format",
+        "--ts.format",
         "STAMP",
-        "--json",
+        "--out.format",
+        "json",
         "tcp",
         "-c",
         "1",
@@ -69,9 +70,10 @@ fn docker_compose_e2e() {
     assert!(event["rtt_ms"].as_f64().is_some_and(|value| value >= 0.0));
 
     let json_summary_output = run_clockping(&[
-        "--timestamp-format",
+        "--ts.format",
         "STAMP",
-        "--json",
+        "--out.format",
+        "json",
         "tcp",
         "-q",
         "-c",
@@ -93,9 +95,10 @@ fn docker_compose_e2e() {
     );
 
     let down_output = run_clockping(&[
-        "--timestamp-format",
+        "--ts.format",
         "STAMP",
-        "--json",
+        "--out.format",
+        "json",
         "tcp",
         "-c",
         "4",
@@ -108,9 +111,10 @@ fn docker_compose_e2e() {
     assert_timestamped_target_down_events(&down_output, "tcp");
 
     let http_down_output = run_clockping(&[
-        "--timestamp-format",
+        "--ts.format",
         "STAMP",
-        "--json",
+        "--out.format",
+        "json",
         "http",
         "-c",
         "4",
@@ -128,9 +132,10 @@ fn docker_compose_e2e() {
         ("v2c", "transient-gtp-v2c-target", "gtpv2c"),
     ] {
         let gtp_down_output = run_clockping(&[
-            "--timestamp-format",
+            "--ts.format",
             "STAMP",
-            "--json",
+            "--out.format",
+            "json",
             "gtp",
             variant,
             "-c",
@@ -146,9 +151,10 @@ fn docker_compose_e2e() {
 
     let icmp_down_output = run_clockping_after_first_line(
         &[
-            "--timestamp-format",
+            "--ts.format",
             "STAMP",
-            "--json",
+            "--out.format",
+            "json",
             "icmp",
             "-4",
             "-c",
@@ -164,7 +170,7 @@ fn docker_compose_e2e() {
     assert_timestamped_target_down_events(&icmp_down_output, "icmp");
 
     let icmp_output = run_clockping(&[
-        "--timestamp",
+        "--ts.preset",
         "none",
         "icmp",
         "-4",
@@ -181,7 +187,7 @@ fn docker_compose_e2e() {
     let ping = find_ping();
     let pinger_arg = format!("--pinger={ping}");
     let wrapper_output = run_clockping(&[
-        "--timestamp",
+        "--ts.preset",
         "none",
         "icmp",
         &pinger_arg,
@@ -202,7 +208,7 @@ fn docker_compose_e2e() {
     }
 
     let gtp_v1u_output = run_clockping(&[
-        "--timestamp",
+        "--ts.preset",
         "none",
         "gtp",
         "v1u",
@@ -216,7 +222,7 @@ fn docker_compose_e2e() {
     assert_contains(&gtp_v1u_output, "gtp_seq=0");
 
     let gtp_v1c_output = run_clockping(&[
-        "--timestamp",
+        "--ts.preset",
         "none",
         "gtp",
         "v1c",
@@ -230,7 +236,7 @@ fn docker_compose_e2e() {
     assert_contains(&gtp_v1c_output, "gtp_seq=0");
 
     let gtp_v2c_output = run_clockping(&[
-        "--timestamp",
+        "--ts.preset",
         "none",
         "gtp",
         "v2c",

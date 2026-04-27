@@ -9,17 +9,8 @@ use super::helpers::*;
 
 #[test]
 fn exits_nonzero_when_every_probe_fails() {
-    let target = unused_local_tcp_addr();
-    let output = run_clockping_raw(&[
-        "--timestamp",
-        "none",
-        "tcp",
-        "-c",
-        "1",
-        "-W",
-        "0.1",
-        &target,
-    ]);
+    let target = unreachable_tcp_target();
+    let output = run_clockping_raw(&["--ts.preset", "none", "tcp", "-c", "1", "-W", "0.1", target]);
     let combined = combined_output(&output);
 
     assert!(
@@ -47,7 +38,7 @@ fn tcp_ipv4_flag_probes_ipv4_target() {
     let target = spawn_tcp_acceptor(1);
 
     let output = run_clockping(&[
-        "--timestamp",
+        "--ts.preset",
         "none",
         "tcp",
         "-4",
@@ -67,7 +58,7 @@ fn http_ipv4_flag_probes_ipv4_target() {
     let url = format!("http://{target}/");
 
     let output = run_clockping(&[
-        "--timestamp",
+        "--ts.preset",
         "none",
         "http",
         "-4",
@@ -84,19 +75,10 @@ fn http_ipv4_flag_probes_ipv4_target() {
 
 #[test]
 fn broken_stdout_pipe_exits_successfully() {
-    let target = unused_local_tcp_addr();
+    let target = spawn_tcp_acceptor(1000);
     let bin = clockping_bin();
     let mut child = Command::new(&bin)
-        .args([
-            "--timestamp",
-            "none",
-            "tcp",
-            "-i",
-            "0",
-            "-W",
-            "0.01",
-            &target,
-        ])
+        .args(["--ts.preset", "none", "tcp", "-i", "0", "-W", "1", &target])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -130,7 +112,7 @@ fn sigint_interrupts_active_probe() {
     let started = Instant::now();
     let mut child = Command::new(&bin)
         .args([
-            "--timestamp",
+            "--ts.preset",
             "none",
             "gtp",
             "v1u",
@@ -182,7 +164,7 @@ fn external_pinger_failure_prints_stderr_without_timestamp() {
         "import sys\nprint('usage: mock ping', file=sys.stderr, flush=True)\nsys.exit(64)\n";
 
     let output = run_clockping_raw(&[
-        "--timestamp-format",
+        "--ts.format",
         "STAMP",
         "icmp",
         "--pinger",
@@ -231,7 +213,7 @@ while True:
     let mut command = Command::new(&bin);
     command
         .args([
-            "--timestamp-format",
+            "--ts.format",
             "STAMP",
             "icmp",
             "--pinger",
@@ -311,11 +293,77 @@ fn icmp_help_lists_native_options() {
         assert_contains(&combined, "-i, --interval <SECONDS>");
         assert_contains(&combined, "-W, --timeout <SECONDS>");
         assert_contains(&combined, "-I, --interface-or-source <INTERFACE_OR_SOURCE>");
+        assert_contains(&combined, "-D, --timestamp");
         assert_contains(&combined, "--pinger <PROGRAM>");
+        assert_contains(&combined, "Metrics Options:");
+        assert_contains(&combined, "--metrics.file <PATH>");
         assert!(
             !combined.contains("raw argv layer"),
             "help should describe user-facing options, not parser internals\n{combined}"
         );
+    }
+}
+
+#[test]
+fn mode_help_lists_global_options() {
+    let cases: &[&[&str]] = &[
+        &["icmp", "--help"],
+        &["tcp", "--help"],
+        &["http", "--help"],
+        &["gtp", "--help"],
+        &["gtp", "v1u", "--help"],
+    ];
+
+    for args in cases {
+        let output = run_clockping_raw(args);
+        let combined = combined_output(&output);
+
+        assert!(
+            output.status.success(),
+            "mode help failed for {:?} with status {}\n{}",
+            args,
+            output.status,
+            combined
+        );
+        assert_contains(&combined, "-V, --version");
+        for expected in [
+            "Output Options:",
+            "--ts.preset <PRESET>",
+            "--ts.format <FORMAT>",
+            "--out.format <FORMAT>",
+            "--out.colored",
+            "Metrics Options:",
+            "--push.url <URL>",
+            "--push.delete-on-exit",
+            "--push.interval <DURATION>",
+            "--push.job <JOB>",
+            "--push.label <KEY=VALUE>",
+            "--push.retries <N>",
+            "--push.timeout <DURATION>",
+            "--push.user-agent <VALUE>",
+            "--metrics.file <PATH>",
+            "--metrics.format <FORMAT>",
+            "--metrics.label <KEY=VALUE>",
+            "--metrics.prefix <PREFIX>",
+        ] {
+            assert_contains(&combined, expected);
+        }
+        for removed in [
+            "--timestamp <TIMESTAMP>",
+            "--timestamp-format",
+            "--timestamp.preset",
+            "--timestamp.format",
+            "--json",
+            "--colored",
+            "--output.format",
+            "--output.color",
+            "--out.color <WHEN>",
+        ] {
+            assert!(
+                !combined.contains(removed),
+                "mode help should not show removed output option {removed}\n{combined}"
+            );
+        }
     }
 }
 
@@ -325,7 +373,7 @@ fn tcp_probes_multiple_targets() {
     let second = spawn_tcp_acceptor(1);
 
     let output = run_clockping(&[
-        "--timestamp",
+        "--ts.preset",
         "none",
         "tcp",
         "-c",
@@ -353,8 +401,8 @@ fn colored_output_uses_ansi_escape_sequences() {
     let target = spawn_tcp_acceptor(1);
 
     let output = run_clockping(&[
-        "--colored",
-        "--timestamp",
+        "--out.colored",
+        "--ts.preset",
         "none",
         "tcp",
         "-c",

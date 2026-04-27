@@ -130,7 +130,7 @@ pub fn run_external_ping_until_sigint_stats(ping: &str, target: &str) -> String 
     let pinger_arg = format!("--pinger={ping}");
     let mut command = Command::new(&bin);
     command
-        .args(["--timestamp-format", "STAMP", "icmp", &pinger_arg, target])
+        .args(["--ts.format", "STAMP", "icmp", &pinger_arg, target])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     set_own_process_group(&mut command);
