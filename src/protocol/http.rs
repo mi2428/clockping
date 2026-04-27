@@ -1,20 +1,29 @@
-use std::{net::Ipv6Addr, ops::RangeInclusive, time::Duration};
+use std::{
+    error::Error,
+    net::{IpAddr, Ipv6Addr},
+    ops::RangeInclusive,
+    sync::Arc,
+    time::Duration,
+};
 
 use anyhow::Context;
 use async_trait::async_trait;
 use reqwest::{
     Client, Method, StatusCode, Url, Version,
+    dns::{Addrs, Name, Resolve, Resolving},
     header::{CONTENT_LENGTH, HeaderMap, HeaderName, HeaderValue},
     redirect::Policy,
 };
-use tokio::time::Instant;
+use tokio::{net::lookup_host, time::Instant};
 
+use super::ip_version::IpVersion;
 use crate::{event::ProbeOutcome, runner::Prober};
 
 pub struct HttpProberConfig {
     pub target: String,
     pub method: Method,
     pub timeout: Duration,
+    pub ip_version: IpVersion,
     pub headers: Vec<(String, String)>,
     pub follow_redirects: bool,
     pub insecure: bool,
@@ -33,6 +42,7 @@ pub struct HttpProber {
 impl HttpProber {
     pub fn new(config: HttpProberConfig) -> anyhow::Result<Self> {
         let url = normalize_url(&config.target)?;
+        ensure_url_matches_ip_version(&url, config.ip_version)?;
         let mut builder = Client::builder()
             .use_rustls_tls()
             .timeout(config.timeout)
@@ -43,6 +53,14 @@ impl HttpProber {
             });
         if config.insecure {
             builder = builder.danger_accept_invalid_certs(true);
+        }
+        if let Some(local_address) = config.ip_version.local_address() {
+            builder =
+                builder
+                    .local_address(local_address)
+                    .dns_resolver(Arc::new(IpVersionResolver {
+                        ip_version: config.ip_version,
+                    }));
         }
 
         let client = builder.build().context("failed to build HTTP client")?;
@@ -122,6 +140,34 @@ impl Prober for HttpProber {
     }
 }
 
+struct IpVersionResolver {
+    ip_version: IpVersion,
+}
+
+impl Resolve for IpVersionResolver {
+    fn resolve(&self, name: Name) -> Resolving {
+        let host = name.as_str().to_owned();
+        let ip_version = self.ip_version;
+
+        Box::pin(async move {
+            let resolved = lookup_host((host.as_str(), 0)).await?;
+            let addrs = resolved
+                .filter(|addr| ip_version.matches_socket_addr(addr))
+                .collect::<Vec<_>>();
+            if addrs.is_empty() {
+                let error = std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    format!("no {} resolved for {host}", ip_version.label()),
+                );
+                return Err(Box::new(error) as Box<dyn Error + Send + Sync>);
+            }
+
+            let addrs: Addrs = Box::new(addrs.into_iter());
+            Ok(addrs)
+        })
+    }
+}
+
 fn normalize_url(target: &str) -> anyhow::Result<Url> {
     let candidate = if target.contains("://") {
         target.to_string()
@@ -135,6 +181,21 @@ fn normalize_url(target: &str) -> anyhow::Result<Url> {
         url.scheme()
     );
     Ok(url)
+}
+
+fn ensure_url_matches_ip_version(url: &Url, ip_version: IpVersion) -> anyhow::Result<()> {
+    let Some(host) = url.host_str() else {
+        return Ok(());
+    };
+    let Ok(addr) = host.parse::<IpAddr>() else {
+        return Ok(());
+    };
+    anyhow::ensure!(
+        ip_version.matches_ip(addr),
+        "HTTP target {url} does not match requested {} family",
+        ip_version.name()
+    );
+    Ok(())
 }
 
 fn build_headers(headers: Vec<(String, String)>) -> anyhow::Result<HeaderMap> {
@@ -351,11 +412,25 @@ mod tests {
         assert_eq!(url.as_str(), "http://example.com/path");
     }
 
+    #[test]
+    fn http_probe_rejects_literal_that_does_not_match_ip_version() {
+        let mut config = test_config("http://127.0.0.1/".to_string());
+        config.ip_version = IpVersion::V6;
+
+        let error = match HttpProber::new(config) {
+            Ok(_) => panic!("expected HTTP prober creation to fail"),
+            Err(error) => error.to_string(),
+        };
+
+        assert!(error.contains("does not match requested IPv6 family"));
+    }
+
     fn test_config(target: String) -> HttpProberConfig {
         HttpProberConfig {
             target,
             method: Method::HEAD,
             timeout: Duration::from_secs(1),
+            ip_version: IpVersion::Any,
             headers: Vec::new(),
             follow_redirects: false,
             insecure: false,

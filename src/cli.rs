@@ -149,6 +149,14 @@ pub struct IcmpCommand {
 
 #[derive(Debug, Args)]
 pub struct TcpCommand {
+    /// Use IPv4 only.
+    #[arg(short = '4', conflicts_with = "ipv6")]
+    pub ipv4: bool,
+
+    /// Use IPv6 only.
+    #[arg(short = '6')]
+    pub ipv6: bool,
+
     /// Stop after count probes. Default is to run until interrupted.
     #[arg(short = 'c', long)]
     pub count: Option<u64>,
@@ -199,6 +207,14 @@ impl StatusRanges {
 
 #[derive(Debug, Args)]
 pub struct HttpCommand {
+    /// Use IPv4 only.
+    #[arg(short = '4', conflicts_with = "ipv6")]
+    pub ipv4: bool,
+
+    /// Use IPv6 only.
+    #[arg(short = '6')]
+    pub ipv6: bool,
+
     /// Stop after count probes. Default is to run until interrupted.
     #[arg(short = 'c', long)]
     pub count: Option<u64>,
@@ -421,6 +437,59 @@ mod tests {
             panic!("expected tcp command");
         };
         assert_eq!(command.targets, ["one:443", "two:443"]);
+    }
+
+    #[test]
+    fn tcp_accepts_ip_version_flags() {
+        let cli = Cli::parse_from(["clockping", "tcp", "-4", "one:443"]);
+
+        let Command::Tcp(command) = cli.command else {
+            panic!("expected tcp command");
+        };
+        assert!(command.ipv4);
+        assert!(!command.ipv6);
+
+        let cli = Cli::parse_from(["clockping", "tcp", "-6", "one:443"]);
+
+        let Command::Tcp(command) = cli.command else {
+            panic!("expected tcp command");
+        };
+        assert!(!command.ipv4);
+        assert!(command.ipv6);
+    }
+
+    #[test]
+    fn tcp_rejects_conflicting_ip_version_flags() {
+        let error = Cli::try_parse_from(["clockping", "tcp", "-4", "-6", "one:443"]).unwrap_err();
+
+        assert!(error.to_string().contains("cannot be used with"));
+    }
+
+    #[test]
+    fn http_accepts_ip_version_flags() {
+        let cli = Cli::parse_from(["clockping", "http", "-4", "example.com"]);
+
+        let Command::Http(command) = cli.command else {
+            panic!("expected http command");
+        };
+        assert!(command.ipv4);
+        assert!(!command.ipv6);
+
+        let cli = Cli::parse_from(["clockping", "http", "-6", "example.com"]);
+
+        let Command::Http(command) = cli.command else {
+            panic!("expected http command");
+        };
+        assert!(!command.ipv4);
+        assert!(command.ipv6);
+    }
+
+    #[test]
+    fn http_rejects_conflicting_ip_version_flags() {
+        let error =
+            Cli::try_parse_from(["clockping", "http", "-4", "-6", "example.com"]).unwrap_err();
+
+        assert!(error.to_string().contains("cannot be used with"));
     }
 
     #[test]

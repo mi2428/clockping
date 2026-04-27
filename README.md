@@ -81,7 +81,8 @@ outstanding replies.
 
 `clockping http` sends a `HEAD` request by default and measures the time until
 response headers are received. Use `-X GET` to send `GET` instead. Redirects are
-not followed unless `-L`/`--location` is set.
+not followed unless `-L`/`--location` is set. Use `-4` or `-6` to restrict DNS
+results to IPv4 or IPv6.
 
 Responses with status codes in `--ok-status` count as replies. The default is
 `200-399`; pass comma-separated values and ranges such as `200,204,300-399` to
@@ -92,7 +93,8 @@ scratch release image does not need an OS CA bundle.
 ## TCP mode
 
 `clockping tcp` requires `host:port` targets. Bare hosts are rejected so the
-probed service is explicit.
+probed service is explicit. Use `-4` or `-6` to restrict DNS results to IPv4 or
+IPv6.
 
 ## Metrics and Pushgateway
 

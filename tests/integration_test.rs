@@ -60,6 +60,46 @@ fn tcp_target_requires_explicit_port() {
 }
 
 #[test]
+fn tcp_ipv4_flag_probes_ipv4_target() {
+    let target = spawn_tcp_acceptor(1);
+
+    let output = run_clockping(&[
+        "--timestamp",
+        "none",
+        "tcp",
+        "-4",
+        "-c",
+        "1",
+        "-W",
+        "1",
+        &target,
+    ]);
+
+    assert_contains(&output, &format!("tcp {target} seq=0 reply"));
+}
+
+#[test]
+fn http_ipv4_flag_probes_ipv4_target() {
+    let target = spawn_http_responder(1);
+    let url = format!("http://{target}/");
+
+    let output = run_clockping(&[
+        "--timestamp",
+        "none",
+        "http",
+        "-4",
+        "-c",
+        "1",
+        "-W",
+        "1",
+        &url,
+    ]);
+
+    assert_contains(&output, &format!("http {url} seq=0 reply"));
+    assert_contains(&output, "method=HEAD status=200");
+}
+
+#[test]
 fn broken_stdout_pipe_exits_successfully() {
     let target = unused_local_tcp_addr();
     let bin = clockping_bin();
@@ -841,6 +881,25 @@ fn spawn_tcp_acceptor(accepts: usize) -> String {
             if listener.accept().is_err() {
                 break;
             }
+        }
+    });
+    addr.to_string()
+}
+
+fn spawn_http_responder(accepts: usize) -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("failed to bind HTTP responder");
+    let addr = listener
+        .local_addr()
+        .expect("failed to read HTTP responder address");
+    thread::spawn(move || {
+        for _ in 0..accepts {
+            let Ok((mut stream, _peer)) = listener.accept() else {
+                break;
+            };
+            let mut buffer = [0_u8; 1024];
+            let _ = stream.read(&mut buffer);
+            let _ = stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
         }
     });
     addr.to_string()

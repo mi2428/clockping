@@ -7,6 +7,7 @@ use tokio::{
     time::Instant,
 };
 
+use super::ip_version::IpVersion;
 use crate::{event::ProbeOutcome, runner::Prober};
 
 pub struct TcpProber {
@@ -17,13 +18,22 @@ pub struct TcpProber {
 }
 
 impl TcpProber {
-    pub async fn new(target: String, timeout: Duration) -> anyhow::Result<Self> {
+    pub async fn new(
+        target: String,
+        timeout: Duration,
+        ip_version: IpVersion,
+    ) -> anyhow::Result<Self> {
         let target = normalize_tcp_target(&target)?;
         let resolved = lookup_host(target.as_str())
             .await
             .with_context(|| format!("failed to resolve TCP target {target}"))?
+            .filter(|addr| ip_version.matches_socket_addr(addr))
             .collect::<Vec<_>>();
-        anyhow::ensure!(!resolved.is_empty(), "no addresses resolved for {target}");
+        anyhow::ensure!(
+            !resolved.is_empty(),
+            "no {} resolved for {target}",
+            ip_version.label()
+        );
         Ok(Self {
             target,
             resolved,
@@ -105,7 +115,7 @@ mod tests {
             let _ = listener.accept().await;
         });
 
-        let mut prober = TcpProber::new(addr.to_string(), Duration::from_secs(1))
+        let mut prober = TcpProber::new(addr.to_string(), Duration::from_secs(1), IpVersion::Any)
             .await
             .unwrap();
         let outcome = prober.probe(0).await;
@@ -132,5 +142,21 @@ mod tests {
         let error = normalize_tcp_target("example.com").unwrap_err().to_string();
 
         assert!(error.contains("TCP target must include a port"));
+    }
+
+    #[tokio::test]
+    async fn tcp_probe_rejects_literal_that_does_not_match_ip_version() {
+        let error = match TcpProber::new(
+            "127.0.0.1:80".to_string(),
+            Duration::from_secs(1),
+            IpVersion::V6,
+        )
+        .await
+        {
+            Ok(_) => panic!("expected TCP prober creation to fail"),
+            Err(error) => error.to_string(),
+        };
+
+        assert!(error.contains("no IPv6 addresses resolved"));
     }
 }

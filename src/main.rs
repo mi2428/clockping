@@ -30,6 +30,7 @@ use crate::{
         gtp::{GtpProber, GtpVariant},
         http::{HttpProber, HttpProberConfig},
         icmp::{self, IcmpEngine},
+        ip_version::IpVersion,
         tcp::TcpProber,
     },
     runner::{Prober, RunnerConfig, Summary, run_probe_loop},
@@ -124,10 +125,11 @@ async fn run() -> anyhow::Result<ExitCode> {
                 count: command.count,
                 deadline: command.deadline,
             };
+            let ip_version = ip_version_from_flags(command.ipv4, command.ipv6);
             let mut probers = Vec::new();
             for target in command.targets {
                 probers.push(
-                    TcpProber::new(target, command.timeout)
+                    TcpProber::new(target, command.timeout, ip_version)
                         .await
                         .context("failed to initialize TCP prober")?,
                 );
@@ -160,6 +162,7 @@ async fn run() -> anyhow::Result<ExitCode> {
                 .map(|header| (header.name, header.value))
                 .collect::<Vec<_>>();
             let ok_statuses = command.ok_status.into_ranges();
+            let ip_version = ip_version_from_flags(command.ipv4, command.ipv6);
             let mut probers = Vec::new();
             for target in command.targets {
                 probers.push(
@@ -167,6 +170,7 @@ async fn run() -> anyhow::Result<ExitCode> {
                         target,
                         method: method.clone(),
                         timeout: command.timeout,
+                        ip_version,
                         headers: headers.clone(),
                         follow_redirects: command.follow_redirects,
                         insecure: command.insecure,
@@ -268,6 +272,14 @@ fn make_output(
         json,
         colored,
     )
+}
+
+fn ip_version_from_flags(ipv4: bool, ipv6: bool) -> IpVersion {
+    match (ipv4, ipv6) {
+        (true, false) => IpVersion::V4,
+        (false, true) => IpVersion::V6,
+        _ => IpVersion::Any,
+    }
 }
 
 fn exit_code_for_summary(summary: &Summary) -> ExitCode {

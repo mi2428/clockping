@@ -81,6 +81,8 @@ complete -c clockping -n "__fish_clockping_using_subcommand tcp" -l metrics.file
 complete -c clockping -n "__fish_clockping_using_subcommand tcp" -l metrics.format -d 'Metrics file format: jsonl or prometheus' -r
 complete -c clockping -n "__fish_clockping_using_subcommand tcp" -l metrics.label -d 'Add a Prometheus file sample label. Repeat for multiple labels' -r
 complete -c clockping -n "__fish_clockping_using_subcommand tcp" -l metrics.prefix -d 'Prometheus metric name prefix' -r
+complete -c clockping -n "__fish_clockping_using_subcommand tcp" -s 4 -d 'Use IPv4 only'
+complete -c clockping -n "__fish_clockping_using_subcommand tcp" -s 6 -d 'Use IPv6 only'
 complete -c clockping -n "__fish_clockping_using_subcommand tcp" -s q -l quiet -d 'Suppress per-probe output and only print the summary'
 complete -c clockping -n "__fish_clockping_using_subcommand tcp" -s C -l colored -d 'Colorize human-readable output with ANSI escape sequences'
 complete -c clockping -n "__fish_clockping_using_subcommand tcp" -l push.delete-on-exit -d 'Delete this Pushgateway grouping key after the run exits'
@@ -104,6 +106,8 @@ complete -c clockping -n "__fish_clockping_using_subcommand http" -l metrics.fil
 complete -c clockping -n "__fish_clockping_using_subcommand http" -l metrics.format -d 'Metrics file format: jsonl or prometheus' -r
 complete -c clockping -n "__fish_clockping_using_subcommand http" -l metrics.label -d 'Add a Prometheus file sample label. Repeat for multiple labels' -r
 complete -c clockping -n "__fish_clockping_using_subcommand http" -l metrics.prefix -d 'Prometheus metric name prefix' -r
+complete -c clockping -n "__fish_clockping_using_subcommand http" -s 4 -d 'Use IPv4 only'
+complete -c clockping -n "__fish_clockping_using_subcommand http" -s 6 -d 'Use IPv6 only'
 complete -c clockping -n "__fish_clockping_using_subcommand http" -s L -l location -d 'Follow HTTP redirects'
 complete -c clockping -n "__fish_clockping_using_subcommand http" -s k -l insecure -d 'Skip TLS certificate verification'
 complete -c clockping -n "__fish_clockping_using_subcommand http" -s q -l quiet -d 'Suppress per-probe output and only print the summary'
