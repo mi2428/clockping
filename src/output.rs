@@ -1,4 +1,7 @@
-use std::time::Duration;
+use std::{
+    io::{self, Write},
+    time::Duration,
+};
 
 use chrono::{DateTime, Local};
 use serde::Serialize;
@@ -63,20 +66,17 @@ impl Output {
         let ts = Local::now();
         if self.json {
             let timestamp = self.timestamp(ts).unwrap_or_default();
-            println!(
-                "{}",
-                serde_json::to_string(&JsonExternalLine {
-                    ts: timestamp,
-                    stream,
-                    line
-                })?
-            );
+            write_stdout_line(&serde_json::to_string(&JsonExternalLine {
+                ts: timestamp,
+                stream,
+                line,
+            })?)?;
             return Ok(());
         }
 
         match self.timestamp(ts) {
-            Some(timestamp) => println!("{timestamp} {line}"),
-            None => println!("{line}"),
+            Some(timestamp) => write_stdout_line(format!("{timestamp} {line}"))?,
+            None => write_stdout_line(line)?,
         }
         Ok(())
     }
@@ -84,7 +84,7 @@ impl Output {
     pub fn print_event(&self, event: &ProbeEvent) -> anyhow::Result<()> {
         if self.json {
             let timestamp = self.timestamp(event.ts).unwrap_or_default();
-            println!("{}", serde_json::to_string(&event.as_json(timestamp))?);
+            write_stdout_line(serde_json::to_string(&event.as_json(timestamp))?)?;
             return Ok(());
         }
 
@@ -150,47 +150,44 @@ impl Output {
             }
         }
 
-        println!("{line}");
+        write_stdout_line(line)?;
         Ok(())
     }
 
     pub fn print_summary(&self, summary: &Summary, quiet: bool) -> anyhow::Result<()> {
         if self.json {
             if quiet {
-                println!(
-                    "{}",
-                    serde_json::to_string(&self.build_json_summary(summary))?
-                );
+                write_stdout_line(serde_json::to_string(&self.build_json_summary(summary))?)?;
             }
             return Ok(());
         }
 
-        println!();
-        println!("--- {} clockping statistics ---", summary.target);
+        write_stdout_line("")?;
+        write_stdout_line(format!("--- {} clockping statistics ---", summary.target))?;
         let lost = summary.sent.saturating_sub(summary.received);
         let loss_pct = if summary.sent == 0 {
             0.0
         } else {
             lost as f64 / summary.sent as f64 * 100.0
         };
-        println!(
+        write_stdout_line(format!(
             "{} probes transmitted, {} replies received, {} lost, {:.1}% loss",
             summary.sent, summary.received, lost, loss_pct
-        );
+        ))?;
 
         if let Some((min, avg, max)) = summary.rtt_min_avg_max() {
-            println!(
+            write_stdout_line(format!(
                 "rtt min/avg/max = {}/{}/{}",
                 format_duration_ms(min),
                 format_duration_ms(avg),
                 format_duration_ms(max)
-            );
+            ))?;
         }
 
         if !summary.loss_periods.is_empty() {
-            println!("loss periods:");
+            write_stdout_line("loss periods:")?;
             for period in &summary.loss_periods {
-                print_loss_period(self, period);
+                print_loss_period(self, period)?;
             }
         }
         Ok(())
@@ -254,7 +251,7 @@ impl Output {
     }
 }
 
-fn print_loss_period(output: &Output, period: &LossPeriod) {
+fn print_loss_period(output: &Output, period: &LossPeriod) -> anyhow::Result<()> {
     let start = output
         .timestamp(period.start)
         .unwrap_or_else(|| period.start.to_rfc3339());
@@ -262,7 +259,7 @@ fn print_loss_period(output: &Output, period: &LossPeriod) {
         Some(end) => {
             let end_text = output.timestamp(end).unwrap_or_else(|| end.to_rfc3339());
             let duration = end.signed_duration_since(period.start).to_std().ok();
-            println!(
+            write_stdout_line(format!(
                 "  {} - {}  lost={} duration={}",
                 start,
                 end_text,
@@ -270,12 +267,13 @@ fn print_loss_period(output: &Output, period: &LossPeriod) {
                 duration
                     .map(format_duration)
                     .unwrap_or_else(|| "n/a".to_string())
-            );
+            ))?;
         }
         None => {
-            println!("  {} - ongoing  lost={}", start, period.lost);
+            write_stdout_line(format!("  {} - ongoing  lost={}", start, period.lost))?;
         }
     }
+    Ok(())
 }
 
 pub fn format_duration_ms(duration: Duration) -> String {
@@ -287,6 +285,20 @@ pub fn format_duration(duration: Duration) -> String {
         return format_duration_ms(duration);
     }
     format!("{:.3}s", duration.as_secs_f64())
+}
+
+fn write_stdout_line(line: impl AsRef<str>) -> anyhow::Result<()> {
+    let mut stdout = io::stdout().lock();
+    writeln!(stdout, "{}", line.as_ref())?;
+    Ok(())
+}
+
+pub fn is_broken_pipe(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| {
+        cause
+            .downcast_ref::<io::Error>()
+            .is_some_and(|error| error.kind() == io::ErrorKind::BrokenPipe)
+    })
 }
 
 #[cfg(test)]
@@ -324,5 +336,15 @@ mod tests {
         assert_eq!(value["rtt_min_ms"], 10.0);
         assert_eq!(value["rtt_avg_ms"], 15.0);
         assert_eq!(value["rtt_max_ms"], 20.0);
+    }
+
+    #[test]
+    fn broken_pipe_errors_are_detected() {
+        let error = anyhow::Error::from(std::io::Error::new(
+            std::io::ErrorKind::BrokenPipe,
+            "stdout closed",
+        ));
+
+        assert!(is_broken_pipe(&error));
     }
 }

@@ -149,7 +149,12 @@ pub async fn run_probe_loop<P: Prober + Send>(
         }
 
         let ts = Local::now();
-        let outcome = prober.probe(seq).await;
+        let outcome = tokio::select! {
+            _ = tokio::signal::ctrl_c() => {
+                break;
+            }
+            outcome = prober.probe(seq) => outcome,
+        };
         let recovery = summary.record(ts, &outcome);
         if !quiet {
             output.print_event(&ProbeEvent {

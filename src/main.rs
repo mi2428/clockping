@@ -5,6 +5,8 @@ mod protocol;
 mod runner;
 mod timefmt;
 
+use std::process::ExitCode;
+
 use anyhow::Context;
 use clap::Parser;
 
@@ -17,16 +19,28 @@ use crate::{
         icmp::{self, IcmpEngine},
         tcp::TcpProber,
     },
-    runner::{RunnerConfig, run_probe_loop},
+    runner::{RunnerConfig, Summary, run_probe_loop},
     timefmt::{TimestampFormatter, TimestampKind},
 };
 
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
+async fn main() -> ExitCode {
+    match run().await {
+        Ok(code) => code,
+        Err(error) if output::is_broken_pipe(&error) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("Error: {error:?}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+async fn run() -> anyhow::Result<ExitCode> {
     let cli = Cli::parse();
     let timestamp = cli.timestamp;
     let timestamp_format = cli.timestamp_format;
     let json = cli.json;
+    let mut exit_code = ExitCode::SUCCESS;
 
     match cli.command {
         Command::Icmp(command) => match icmp::parse_engine(command.args)? {
@@ -46,7 +60,8 @@ async fn main() -> anyhow::Result<()> {
                 let prober = icmp::NativeIcmpProber::new(config)
                     .await
                     .context("failed to initialize native ICMP prober")?;
-                run_probe_loop(prober, runner_config, output, quiet).await?;
+                let summary = run_probe_loop(prober, runner_config, output, quiet).await?;
+                exit_code = exit_code_for_summary(&summary);
             }
         },
         Command::Tcp(command) => {
@@ -60,7 +75,8 @@ async fn main() -> anyhow::Result<()> {
             let prober = TcpProber::new(command.target, command.timeout)
                 .await
                 .context("failed to initialize TCP prober")?;
-            run_probe_loop(prober, runner_config, output, quiet).await?;
+            let summary = run_probe_loop(prober, runner_config, output, quiet).await?;
+            exit_code = exit_code_for_summary(&summary);
         }
         Command::Http(command) => {
             let quiet = command.quiet;
@@ -87,7 +103,8 @@ async fn main() -> anyhow::Result<()> {
                 ok_statuses: command.ok_status.into_ranges(),
             })
             .context("failed to initialize HTTP prober")?;
-            run_probe_loop(prober, runner_config, output, quiet).await?;
+            let summary = run_probe_loop(prober, runner_config, output, quiet).await?;
+            exit_code = exit_code_for_summary(&summary);
         }
         Command::Gtp(command) => {
             let output = make_output(timestamp, timestamp_format.clone(), json, false);
@@ -105,11 +122,12 @@ async fn main() -> anyhow::Result<()> {
             let prober = GtpProber::new(variant, args.target, args.port, args.timeout)
                 .await
                 .context("failed to initialize GTP prober")?;
-            run_probe_loop(prober, runner_config, output, quiet).await?;
+            let summary = run_probe_loop(prober, runner_config, output, quiet).await?;
+            exit_code = exit_code_for_summary(&summary);
         }
     }
 
-    Ok(())
+    Ok(exit_code)
 }
 
 fn make_output(
@@ -125,4 +143,38 @@ fn make_output(
             timestamp
         };
     Output::new(TimestampFormatter::new(timestamp, timestamp_format), json)
+}
+
+fn exit_code_for_summary(summary: &Summary) -> ExitCode {
+    if summary.sent > 0 && summary.received == 0 {
+        ExitCode::FAILURE
+    } else {
+        ExitCode::SUCCESS
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::*;
+
+    #[test]
+    fn exit_code_fails_when_every_probe_is_lost() {
+        let mut summary = Summary::new("target".to_string());
+        summary.sent = 2;
+        summary.received = 0;
+
+        assert_eq!(exit_code_for_summary(&summary), ExitCode::FAILURE);
+    }
+
+    #[test]
+    fn exit_code_succeeds_when_any_probe_replies() {
+        let mut summary = Summary::new("target".to_string());
+        summary.sent = 2;
+        summary.received = 1;
+        summary.rtts.push(Duration::from_millis(1));
+
+        assert_eq!(exit_code_for_summary(&summary), ExitCode::SUCCESS);
+    }
 }
