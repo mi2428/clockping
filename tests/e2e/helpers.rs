@@ -1,5 +1,5 @@
 use std::{
-    io::{BufRead, BufReader, Read, Write},
+    io::{self, BufRead, BufReader},
     net::{Shutdown, TcpStream, ToSocketAddrs, UdpSocket},
     process::{Child, Command, ExitStatus, Output as ProcessOutput, Stdio},
     thread,
@@ -113,9 +113,7 @@ pub fn run_clockping_after_first_line(
 
     after_first_line(&output);
     let status = wait_for_child(&mut child, Duration::from_secs(8));
-    reader
-        .read_to_string(&mut output)
-        .expect("failed to read remaining output");
+    io::Read::read_to_string(&mut reader, &mut output).expect("failed to read remaining output");
     let stderr = child_stderr(&mut child);
     eprintln!("{output}{stderr}");
 
@@ -148,8 +146,7 @@ pub fn run_external_ping_until_sigint_stats(ping: &str, target: &str) -> String 
 
     interrupt_process_group(child.id());
     let status = wait_for_child(&mut child, Duration::from_secs(5));
-    reader
-        .read_to_string(&mut output)
+    io::Read::read_to_string(&mut reader, &mut output)
         .expect("failed to read remaining external ping output");
     let stderr = child_stderr(&mut child);
     eprintln!("{output}{stderr}");
@@ -173,9 +170,7 @@ fn combined_output(output: &ProcessOutput) -> String {
 
 pub fn trigger_icmp_down(host: &str, port: u16) {
     let mut stream = TcpStream::connect((host, port)).expect("failed to connect to ICMP control");
-    stream
-        .write_all(b"down")
-        .expect("failed to write ICMP down command");
+    io::Write::write_all(&mut stream, b"down").expect("failed to write ICMP down command");
     stream
         .shutdown(Shutdown::Write)
         .expect("failed to close ICMP control write side");
@@ -220,9 +215,7 @@ fn interrupt_process_group(pid: u32) {
 fn child_stderr(child: &mut Child) -> String {
     let mut output = String::new();
     if let Some(mut stderr) = child.stderr.take() {
-        stderr
-            .read_to_string(&mut output)
-            .expect("failed to read child stderr");
+        io::Read::read_to_string(&mut stderr, &mut output).expect("failed to read child stderr");
     }
     output
 }

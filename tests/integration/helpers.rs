@@ -1,5 +1,5 @@
 use std::{
-    io::{Read, Write},
+    io,
     net::{TcpListener, TcpStream},
     process::{Child, Command, ExitStatus, Output as ProcessOutput},
     sync::mpsc,
@@ -75,9 +75,11 @@ pub fn spawn_http_responder(accepts: usize) -> String {
                 break;
             };
             let mut buffer = [0_u8; 1024];
-            let _ = stream.read(&mut buffer);
-            let _ = stream
-                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+            let _ = io::Read::read(&mut stream, &mut buffer);
+            let _ = io::Write::write_all(
+                &mut stream,
+                b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            );
         }
     });
     addr.to_string()
@@ -123,7 +125,7 @@ fn capture_pushgateway_request(mut stream: TcpStream) -> Option<CapturedHttpRequ
     let mut buffer = Vec::new();
     let mut chunk = [0_u8; 1024];
     let header_end = loop {
-        match stream.read(&mut chunk) {
+        match io::Read::read(&mut stream, &mut chunk) {
             Ok(0) => return None,
             Ok(read) => {
                 buffer.extend_from_slice(&chunk[..read]);
@@ -138,7 +140,7 @@ fn capture_pushgateway_request(mut stream: TcpStream) -> Option<CapturedHttpRequ
     let headers = String::from_utf8_lossy(&buffer[..header_end]).to_string();
     let content_length = headers.lines().find_map(parse_content_length).unwrap_or(0);
     while buffer.len() < header_end + content_length {
-        match stream.read(&mut chunk) {
+        match io::Read::read(&mut stream, &mut chunk) {
             Ok(0) => break,
             Ok(read) => buffer.extend_from_slice(&chunk[..read]),
             Err(_) => break,
@@ -148,7 +150,10 @@ fn capture_pushgateway_request(mut stream: TcpStream) -> Option<CapturedHttpRequ
     let body_end = (header_end + content_length).min(buffer.len());
     let body = String::from_utf8_lossy(&buffer[header_end..body_end]).to_string();
     let request_line = headers.lines().next().unwrap_or_default().to_string();
-    let _ = stream.write_all(b"HTTP/1.1 202 Accepted\r\nContent-Length: 0\r\n\r\n");
+    let _ = io::Write::write_all(
+        &mut stream,
+        b"HTTP/1.1 202 Accepted\r\nContent-Length: 0\r\n\r\n",
+    );
     Some(CapturedHttpRequest { request_line, body })
 }
 
@@ -214,9 +219,7 @@ pub fn interrupt_process_group(pid: u32) {
 pub fn child_stdout(child: &mut Child) -> String {
     let mut output = String::new();
     if let Some(mut stdout) = child.stdout.take() {
-        stdout
-            .read_to_string(&mut output)
-            .expect("failed to read child stdout");
+        io::Read::read_to_string(&mut stdout, &mut output).expect("failed to read child stdout");
     }
     output
 }
@@ -224,9 +227,7 @@ pub fn child_stdout(child: &mut Child) -> String {
 pub fn child_stderr(child: &mut Child) -> String {
     let mut output = String::new();
     if let Some(mut stderr) = child.stderr.take() {
-        stderr
-            .read_to_string(&mut output)
-            .expect("failed to read child stderr");
+        io::Read::read_to_string(&mut stderr, &mut output).expect("failed to read child stderr");
     }
     output
 }
