@@ -95,11 +95,11 @@ Run `docker compose up` to start Pushgateway, Prometheus, and Grafana.
 It exposes Pushgateway on `:9091`, Prometheus on `:9090`, and Grafana on `:3000`.
 
 ```text
-$clockping --metrics.file clockping.jsonl tcp -c 5 example.com:443
-$clockping --metrics.file clockping.prom --metrics.format prometheus \
-   --metrics.prefix nettest --metrics.label site=tokyo tcp example.com:443
-$clockping --push.url 127.0.0.1:9091 --push.label scenario=sample \
-  tcp example.com:443
+$ clockping --metrics.file clockping.jsonl tcp -c 5 example.com:443
+$ clockping --metrics.file clockping.prom --metrics.format prometheus \
+    --metrics.prefix nettest --metrics.label site=tokyo tcp example.com:443
+$ clockping --push.url 127.0.0.1:9091 --push.label scenario=sample \
+    tcp example.com:443
 ```
 
 CLI values override environment defaults.
