@@ -270,8 +270,14 @@ fn tcp_probes_multiple_targets() {
 
     assert_contains(&output, &format!("tcp {first} seq=0 reply"));
     assert_contains(&output, &format!("tcp {second} seq=0 reply"));
-    assert_contains(&output, &format!("--- {first} clockping statistics ---"));
-    assert_contains(&output, &format!("--- {second} clockping statistics ---"));
+    assert_contains(
+        &output,
+        &format!("--- {first} clockping statistics ---\n1 probes transmitted"),
+    );
+    assert_contains(
+        &output,
+        &format!("--- {second} clockping statistics ---\n1 probes transmitted"),
+    );
 }
 
 #[test]

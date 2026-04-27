@@ -162,35 +162,48 @@ impl Output {
             return Ok(());
         }
 
-        write_stdout_line("")?;
-        write_stdout_line(format!("--- {} clockping statistics ---", summary.target))?;
+        write_stdout_block(&self.build_text_summary(summary))?;
+        Ok(())
+    }
+
+    fn build_text_summary(&self, summary: &Summary) -> String {
+        let mut out = String::new();
+        out.push('\n');
+        out.push_str(&format!(
+            "--- {} clockping statistics ---\n",
+            summary.target
+        ));
+
         let lost = summary.sent.saturating_sub(summary.received);
         let loss_pct = if summary.sent == 0 {
             0.0
         } else {
             lost as f64 / summary.sent as f64 * 100.0
         };
-        write_stdout_line(format!(
+        out.push_str(&format!(
             "{} probes transmitted, {} replies received, {} lost, {:.1}% loss",
             summary.sent, summary.received, lost, loss_pct
-        ))?;
+        ));
+        out.push('\n');
 
         if let Some((min, avg, max)) = summary.rtt_min_avg_max() {
-            write_stdout_line(format!(
+            out.push_str(&format!(
                 "rtt min/avg/max = {}/{}/{}",
                 format_duration_ms(min),
                 format_duration_ms(avg),
                 format_duration_ms(max)
-            ))?;
+            ));
+            out.push('\n');
         }
 
         if !summary.loss_periods.is_empty() {
-            write_stdout_line("loss periods:")?;
+            out.push_str("loss periods:\n");
             for period in &summary.loss_periods {
-                print_loss_period(self, period)?;
+                out.push_str(&format_loss_period(self, period));
+                out.push('\n');
             }
         }
-        Ok(())
+        out
     }
 
     fn build_json_summary(&self, summary: &Summary) -> JsonSummary {
@@ -251,7 +264,7 @@ impl Output {
     }
 }
 
-fn print_loss_period(output: &Output, period: &LossPeriod) -> anyhow::Result<()> {
+fn format_loss_period(output: &Output, period: &LossPeriod) -> String {
     let start = output
         .timestamp(period.start)
         .unwrap_or_else(|| period.start.to_rfc3339());
@@ -259,7 +272,7 @@ fn print_loss_period(output: &Output, period: &LossPeriod) -> anyhow::Result<()>
         Some(end) => {
             let end_text = output.timestamp(end).unwrap_or_else(|| end.to_rfc3339());
             let duration = end.signed_duration_since(period.start).to_std().ok();
-            write_stdout_line(format!(
+            format!(
                 "  {} - {}  lost={} duration={}",
                 start,
                 end_text,
@@ -267,13 +280,10 @@ fn print_loss_period(output: &Output, period: &LossPeriod) -> anyhow::Result<()>
                 duration
                     .map(format_duration)
                     .unwrap_or_else(|| "n/a".to_string())
-            ))?;
+            )
         }
-        None => {
-            write_stdout_line(format!("  {} - ongoing  lost={}", start, period.lost))?;
-        }
+        None => format!("  {} - ongoing  lost={}", start, period.lost),
     }
-    Ok(())
 }
 
 pub fn format_duration_ms(duration: Duration) -> String {
@@ -290,6 +300,12 @@ pub fn format_duration(duration: Duration) -> String {
 fn write_stdout_line(line: impl AsRef<str>) -> anyhow::Result<()> {
     let mut stdout = io::stdout().lock();
     writeln!(stdout, "{}", line.as_ref())?;
+    Ok(())
+}
+
+fn write_stdout_block(block: &str) -> anyhow::Result<()> {
+    let mut stdout = io::stdout().lock();
+    stdout.write_all(block.as_bytes())?;
     Ok(())
 }
 
@@ -336,6 +352,25 @@ mod tests {
         assert_eq!(value["rtt_min_ms"], 10.0);
         assert_eq!(value["rtt_avg_ms"], 15.0);
         assert_eq!(value["rtt_max_ms"], 20.0);
+    }
+
+    #[test]
+    fn text_summary_renders_as_contiguous_block() {
+        let mut summary = Summary::new("target".to_string());
+        summary.sent = 3;
+        summary.received = 2;
+        summary.rtts = vec![Duration::from_millis(10), Duration::from_millis(20)];
+
+        let output = Output::new(
+            TimestampFormatter::new(crate::timefmt::TimestampKind::None, None),
+            false,
+        );
+        let text = output.build_text_summary(&summary);
+
+        assert!(text.starts_with("\n--- target clockping statistics ---\n"));
+        assert!(text.contains(
+            "3 probes transmitted, 2 replies received, 1 lost, 33.3% loss\nrtt min/avg/max = 10.000ms/15.000ms/20.000ms\n"
+        ));
     }
 
     #[test]
