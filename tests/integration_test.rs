@@ -222,7 +222,7 @@ fn external_pinger_failure_prints_stderr_without_timestamp() {
 
 #[cfg(unix)]
 #[test]
-fn external_pinger_sigint_forwards_to_child_and_drains_stats() {
+fn external_pinger_sigint_drains_stats_without_timestamps() {
     let Some(python) = find_python3() else {
         eprintln!("skipping external pinger SIGINT test; python3 not found");
         return;
@@ -247,8 +247,8 @@ while True:
     let bin = clockping_bin();
     let mut child = Command::new(&bin)
         .args([
-            "--timestamp",
-            "none",
+            "--timestamp-format",
+            "STAMP",
             "icmp",
             "--pinger",
             python,
@@ -267,7 +267,7 @@ while True:
         .read_line(&mut stdout)
         .expect("failed to read first external pinger line");
     assert_ne!(bytes, 0, "clockping exited before mock pinger output");
-    assert_contains(&stdout, "PING mock");
+    assert_contains(&stdout, "STAMP PING mock");
 
     let signal_status = Command::new("kill")
         .args(["-INT", &child.id().to_string()])
@@ -287,6 +287,14 @@ while True:
     );
     assert_contains(&stdout, "mock ping statistics");
     assert_contains(&stdout, "3 packets transmitted, 3 received");
+    assert!(
+        !stdout.contains("STAMP --- mock ping statistics"),
+        "external pinger stats should not be timestamped after Ctrl-C\n{stdout}"
+    );
+    assert!(
+        !stdout.contains("STAMP 3 packets transmitted"),
+        "external pinger stats should not be timestamped after Ctrl-C\n{stdout}"
+    );
 }
 
 #[test]

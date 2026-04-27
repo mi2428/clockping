@@ -3,7 +3,10 @@ use std::{
     net::{IpAddr, SocketAddr},
     path::PathBuf,
     process::ExitStatus,
-    sync::atomic::{AtomicU16, Ordering},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicU16, Ordering},
+    },
     time::Duration,
 };
 
@@ -203,11 +206,17 @@ pub async fn run_external(config: ExternalPingConfig, output: Output) -> anyhow:
     let stderr = child.stderr.take().context("failed to capture stderr")?;
     let stdout_output = output.clone();
     let stderr_output = output.clone();
+    let interrupted = Arc::new(AtomicBool::new(false));
+    let stdout_interrupted = Arc::clone(&interrupted);
 
     let stdout_task = tokio::spawn(async move {
         let mut lines = BufReader::new(stdout).lines();
         while let Some(line) = lines.next_line().await? {
-            stdout_output.print_external_line("stdout", &line)?;
+            if stdout_interrupted.load(Ordering::Acquire) {
+                stdout_output.print_external_line_without_timestamp("stdout", &line)?;
+            } else {
+                stdout_output.print_external_line("stdout", &line)?;
+            }
         }
         anyhow::Ok(())
     });
@@ -220,7 +229,7 @@ pub async fn run_external(config: ExternalPingConfig, output: Output) -> anyhow:
         anyhow::Ok(())
     });
 
-    let (status, interrupted) = wait_for_external_child(&mut child).await?;
+    let (status, interrupted) = wait_for_external_child(&mut child, &interrupted).await?;
     stdout_task.await??;
     stderr_task.await??;
     if !status.success() && !interrupted {
@@ -229,11 +238,15 @@ pub async fn run_external(config: ExternalPingConfig, output: Output) -> anyhow:
     Ok(())
 }
 
-async fn wait_for_external_child(child: &mut Child) -> anyhow::Result<(ExitStatus, bool)> {
+async fn wait_for_external_child(
+    child: &mut Child,
+    interrupted: &AtomicBool,
+) -> anyhow::Result<(ExitStatus, bool)> {
     tokio::select! {
         status = child.wait() => Ok((status?, false)),
         interrupt = tokio::signal::ctrl_c() => {
             interrupt.context("failed to listen for Ctrl-C")?;
+            interrupted.store(true, Ordering::Release);
             Ok((wait_after_ctrl_c(child).await?, true))
         }
     }

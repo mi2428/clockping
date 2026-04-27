@@ -88,6 +88,23 @@ impl Output {
         Ok(())
     }
 
+    pub fn print_external_line_without_timestamp(
+        &self,
+        stream: &'static str,
+        line: &str,
+    ) -> anyhow::Result<()> {
+        if self.json {
+            write_stdout_line(&serde_json::to_string(&JsonExternalLine {
+                ts: String::new(),
+                stream,
+                line,
+            })?)?;
+            return Ok(());
+        }
+
+        write_stdout_line(line)
+    }
+
     pub fn print_external_stderr_line(&self, line: &str) -> anyhow::Result<()> {
         write_stderr_line(line)
     }
