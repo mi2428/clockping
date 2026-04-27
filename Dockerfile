@@ -11,6 +11,7 @@ FROM ${BUILD_IMAGE}:${BUILD_IMAGE_TAG} AS e2e-build
 WORKDIR /workspace
 COPY . .
 
+# hadolint ignore=DL4006
 RUN --mount=type=cache,id=clockping-cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,id=clockping-cargo-git,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,id=clockping-e2e-target,target=/workspace/target,sharing=locked \
