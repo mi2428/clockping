@@ -109,59 +109,47 @@ struct SeenMetricsOptions {
 
 impl MetricsOptionState {
     fn from_env(get_env: &mut impl FnMut(&str) -> Option<String>) -> anyhow::Result<Self> {
-        let push_url = env_value(get_env, "CLOCKPING_PUSH_URL", "IPERF3_PUSH_URL");
-        let push_job = env_value(get_env, "CLOCKPING_PUSH_JOB", "IPERF3_PUSH_JOB")
+        let push_url = get_env("CLOCKPING_PUSH_URL");
+        let push_job = get_env("CLOCKPING_PUSH_JOB")
             .unwrap_or_else(|| PushGatewayConfig::DEFAULT_JOB.to_owned());
-        let push_labels = env_value(get_env, "CLOCKPING_PUSH_LABELS", "IPERF3_PUSH_LABELS")
+        let push_labels = get_env("CLOCKPING_PUSH_LABELS")
             .map(|raw| parse_env_labels("CLOCKPING_PUSH_LABELS", &raw, true))
             .transpose()?
             .unwrap_or_default();
-        let push_timeout = env_value(get_env, "CLOCKPING_PUSH_TIMEOUT", "IPERF3_PUSH_TIMEOUT")
+        let push_timeout = get_env("CLOCKPING_PUSH_TIMEOUT")
             .map(|raw| parse_duration_option("CLOCKPING_PUSH_TIMEOUT", &raw))
             .transpose()?
             .unwrap_or_else(PushGatewayConfig::default_timeout);
-        let push_retries = env_value(get_env, "CLOCKPING_PUSH_RETRIES", "IPERF3_PUSH_RETRIES")
+        let push_retries = get_env("CLOCKPING_PUSH_RETRIES")
             .map(|raw| parse_retries("CLOCKPING_PUSH_RETRIES", &raw))
             .transpose()?
             .unwrap_or(PushGatewayConfig::DEFAULT_RETRIES);
-        let push_user_agent = env_value(
-            get_env,
-            "CLOCKPING_PUSH_USER_AGENT",
-            "IPERF3_PUSH_USER_AGENT",
-        )
-        .map(|raw| parse_user_agent("CLOCKPING_PUSH_USER_AGENT", &raw))
-        .transpose()?
-        .unwrap_or_else(PushGatewayConfig::default_user_agent);
-        let metrics_prefix =
-            env_value(get_env, "CLOCKPING_METRICS_PREFIX", "IPERF3_METRICS_PREFIX")
-                .map(|raw| parse_metric_prefix("CLOCKPING_METRICS_PREFIX", &raw))
-                .transpose()?
-                .unwrap_or_else(|| PushGatewayConfig::DEFAULT_METRIC_PREFIX.to_owned());
-        let push_interval = env_value(get_env, "CLOCKPING_PUSH_INTERVAL", "IPERF3_PUSH_INTERVAL")
+        let push_user_agent = get_env("CLOCKPING_PUSH_USER_AGENT")
+            .map(|raw| parse_user_agent("CLOCKPING_PUSH_USER_AGENT", &raw))
+            .transpose()?
+            .unwrap_or_else(PushGatewayConfig::default_user_agent);
+        let metrics_prefix = get_env("CLOCKPING_METRICS_PREFIX")
+            .map(|raw| parse_metric_prefix("CLOCKPING_METRICS_PREFIX", &raw))
+            .transpose()?
+            .unwrap_or_else(|| PushGatewayConfig::DEFAULT_METRIC_PREFIX.to_owned());
+        let push_interval = get_env("CLOCKPING_PUSH_INTERVAL")
             .map(|raw| parse_duration_option("CLOCKPING_PUSH_INTERVAL", &raw))
             .transpose()?;
-        let push_delete_on_exit = env_value(
-            get_env,
-            "CLOCKPING_PUSH_DELETE_ON_EXIT",
-            "IPERF3_PUSH_DELETE_ON_EXIT",
-        )
-        .map(|raw| parse_bool_option("CLOCKPING_PUSH_DELETE_ON_EXIT", &raw))
-        .transpose()?
-        .unwrap_or(false);
-        let metrics_file =
-            env_value(get_env, "CLOCKPING_METRICS_FILE", "IPERF3_METRICS_FILE").map(PathBuf::from);
-        let raw_metrics_format =
-            env_value(get_env, "CLOCKPING_METRICS_FORMAT", "IPERF3_METRICS_FORMAT");
+        let push_delete_on_exit = get_env("CLOCKPING_PUSH_DELETE_ON_EXIT")
+            .map(|raw| parse_bool_option("CLOCKPING_PUSH_DELETE_ON_EXIT", &raw))
+            .transpose()?
+            .unwrap_or(false);
+        let metrics_file = get_env("CLOCKPING_METRICS_FILE").map(PathBuf::from);
+        let raw_metrics_format = get_env("CLOCKPING_METRICS_FORMAT");
         let metrics_format = raw_metrics_format
             .as_deref()
             .map(|raw| parse_metrics_format("CLOCKPING_METRICS_FORMAT", raw))
             .transpose()?
             .unwrap_or(MetricsFileFormat::Jsonl);
-        let metrics_labels =
-            env_value(get_env, "CLOCKPING_METRICS_LABELS", "IPERF3_METRICS_LABELS")
-                .map(|raw| parse_env_labels("CLOCKPING_METRICS_LABELS", &raw, false))
-                .transpose()?
-                .unwrap_or_default();
+        let metrics_labels = get_env("CLOCKPING_METRICS_LABELS")
+            .map(|raw| parse_env_labels("CLOCKPING_METRICS_LABELS", &raw, false))
+            .transpose()?
+            .unwrap_or_default();
 
         let seen = SeenMetricsOptions {
             push_label: !push_labels.is_empty(),
@@ -622,14 +610,6 @@ fn reject_dynamic_metric_labels(labels: &[(String, String)]) -> anyhow::Result<(
     Ok(())
 }
 
-fn env_value(
-    get_env: &mut impl FnMut(&str) -> Option<String>,
-    primary: &str,
-    fallback: &str,
-) -> Option<String> {
-    get_env(primary).or_else(|| get_env(fallback))
-}
-
 fn find_informational_request(args: &[OsString]) -> bool {
     for arg in args {
         if arg == "--" {
@@ -779,47 +759,6 @@ mod tests {
 
         assert!(!options.push_delete_on_exit);
         assert_eq!(cli, ["clockping", "tcp", "127.0.0.1:80"]);
-    }
-
-    #[test]
-    fn clockping_environment_overrides_iperf3_aliases() {
-        let args = vec!["clockping".into(), "tcp".into(), "127.0.0.1:80".into()];
-
-        let (options, cli) = extract_metrics_options_with_env(args, |key| match key {
-            "IPERF3_PUSH_URL" => Some("http://iperf.example:9091".to_owned()),
-            "CLOCKPING_PUSH_URL" => Some("http://clock.example:9091".to_owned()),
-            "IPERF3_METRICS_PREFIX" => Some("iperf_prefix".to_owned()),
-            "CLOCKPING_METRICS_PREFIX" => Some("clock_prefix".to_owned()),
-            _ => None,
-        })
-        .unwrap();
-
-        assert_eq!(
-            options.push_url.unwrap().as_str(),
-            "http://clock.example:9091/"
-        );
-        assert_eq!(options.metrics_prefix, "clock_prefix");
-        assert_eq!(cli, ["clockping", "tcp", "127.0.0.1:80"]);
-    }
-
-    #[test]
-    fn accepts_iperf3_environment_aliases() {
-        let args = vec!["clockping".into(), "tcp".into(), "127.0.0.1:80".into()];
-
-        let (options, _cli) = extract_metrics_options_with_env(args, |key| match key {
-            "IPERF3_PUSH_URL" => Some("localhost:9091".to_owned()),
-            "IPERF3_PUSH_LABELS" => Some("scenario=alias".to_owned()),
-            "IPERF3_METRICS_FILE" => Some("metrics.jsonl".to_owned()),
-            _ => None,
-        })
-        .unwrap();
-
-        assert_eq!(options.push_url.unwrap().as_str(), "http://localhost:9091/");
-        assert_eq!(
-            options.push_labels,
-            [("scenario".to_owned(), "alias".to_owned())]
-        );
-        assert_eq!(options.metrics_file, Some(PathBuf::from("metrics.jsonl")));
     }
 
     #[test]

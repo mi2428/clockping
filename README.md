@@ -121,8 +121,6 @@ The supported `CLOCKPING_*` defaults are listed below.
 | `CLOCKPING_METRICS_LABELS` | `--metrics.label` | Comma-separated Prometheus file labels. |
 | `CLOCKPING_METRICS_PREFIX` | `--metrics.prefix` | Prometheus metric name prefix. |
 
-For migration parity with `iperf3-rs`, matching `IPERF3_*` names are accepted as fallback aliases when the `CLOCKPING_*` variable is not set.
-
 ### ICMP mode
 
 Native ICMP is the default and supports the common ping-style options shown below.
@@ -357,4 +355,5 @@ It expects `gh` to be authenticated and Docker Buildx to be able to push `linux/
 
 ## License
 
-MIT License. See [LICENSE](LICENSE) for details.
+MIT License.
+See [LICENSE](LICENSE) for details.
