@@ -30,7 +30,7 @@ Options:
   -D, --timestamp                         Accepted for ping compatibility. clockping timestamps every event by default
   -O, --report-outstanding                Report outstanding reply before sending next packet
       --pinger <PROGRAM>                  Run an external ping-compatible command instead of native ICMP
-      --colored                           Colorize human-readable output with ANSI escape sequences
+  -C, --colored                           Colorize human-readable output with ANSI escape sequences
   -h, --help                              Print help
 ";
 
@@ -55,7 +55,7 @@ pub struct Cli {
     pub json: bool,
 
     /// Colorize human-readable output with ANSI escape sequences.
-    #[arg(long, global = true)]
+    #[arg(short = 'C', long, global = true)]
     pub colored: bool,
 
     #[command(flatten)]
@@ -170,7 +170,7 @@ pub struct TcpCommand {
     pub quiet: bool,
 
     /// Targets as host:port. Repeat for multiple targets.
-    #[arg(required = true, num_args = 1.., value_name = "TARGET")]
+    #[arg(required = true, num_args = 1.., value_name = "TARGET", value_parser = parse_tcp_target)]
     pub targets: Vec<String>,
 }
 
@@ -303,6 +303,10 @@ pub fn parse_seconds(value: &str) -> Result<Duration, String> {
     Ok(Duration::from_secs_f64(seconds))
 }
 
+fn parse_tcp_target(value: &str) -> Result<String, String> {
+    crate::protocol::tcp::normalize_tcp_target(value).map_err(|error| error.to_string())
+}
+
 fn parse_header(value: &str) -> Result<HeaderArg, String> {
     let (name, header_value) = value
         .split_once(':')
@@ -420,15 +424,22 @@ mod tests {
     }
 
     #[test]
+    fn tcp_rejects_target_without_port() {
+        let error = Cli::try_parse_from(["clockping", "tcp", "example.com"]).unwrap_err();
+
+        assert!(error.to_string().contains("TCP target must include a port"));
+    }
+
+    #[test]
     fn colored_is_global() {
-        let cli = Cli::parse_from(["clockping", "tcp", "--colored", "one:443"]);
+        let cli = Cli::parse_from(["clockping", "tcp", "-C", "one:443"]);
 
         assert!(cli.colored);
     }
 
     #[test]
     fn colored_is_global_for_icmp_raw_args() {
-        let cli = Cli::parse_from(["clockping", "icmp", "--colored", "127.0.0.1"]);
+        let cli = Cli::parse_from(["clockping", "icmp", "-C", "127.0.0.1"]);
 
         assert!(cli.colored);
         let Command::Icmp(command) = cli.command else {

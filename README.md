@@ -89,6 +89,11 @@ override it. Additional request headers can be supplied with repeated
 `-H 'Name: value'` options. HTTPS uses Rustls with embedded webpki roots, so the
 scratch release image does not need an OS CA bundle.
 
+## TCP mode
+
+`clockping tcp` requires `host:port` targets. Bare hosts are rejected so the
+probed service is explicit.
+
 ## Metrics and Pushgateway
 
 `clockping` can write one metrics event per probe and can push Prometheus text

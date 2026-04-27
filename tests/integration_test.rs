@@ -48,6 +48,18 @@ fn exits_nonzero_when_every_probe_fails() {
 }
 
 #[test]
+fn tcp_target_requires_explicit_port() {
+    let output = run_clockping_raw(&["tcp", "example.com"]);
+    let combined = combined_output(&output);
+
+    assert!(
+        !output.status.success(),
+        "missing TCP port should fail\n{combined}"
+    );
+    assert_contains(&combined, "TCP target must include a port");
+}
+
+#[test]
 fn broken_stdout_pipe_exits_successfully() {
     let target = unused_local_tcp_addr();
     let bin = clockping_bin();

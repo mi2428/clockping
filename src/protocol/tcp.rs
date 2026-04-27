@@ -1,5 +1,6 @@
 use std::{net::SocketAddr, time::Duration};
 
+use anyhow::Context;
 use async_trait::async_trait;
 use tokio::{
     net::{TcpStream, lookup_host},
@@ -17,7 +18,11 @@ pub struct TcpProber {
 
 impl TcpProber {
     pub async fn new(target: String, timeout: Duration) -> anyhow::Result<Self> {
-        let resolved = lookup_host(&target).await?.collect::<Vec<_>>();
+        let target = normalize_tcp_target(&target)?;
+        let resolved = lookup_host(target.as_str())
+            .await
+            .with_context(|| format!("failed to resolve TCP target {target}"))?
+            .collect::<Vec<_>>();
         anyhow::ensure!(!resolved.is_empty(), "no addresses resolved for {target}");
         Ok(Self {
             target,
@@ -32,6 +37,25 @@ impl TcpProber {
         self.next_addr = self.next_addr.wrapping_add(1);
         addr
     }
+}
+
+pub fn normalize_tcp_target(target: &str) -> anyhow::Result<String> {
+    let target = target.trim();
+    anyhow::ensure!(!target.is_empty(), "TCP target must not be empty");
+    if target.parse::<SocketAddr>().is_ok() {
+        return Ok(target.to_string());
+    }
+    if let Some((host, port)) = target.rsplit_once(':') {
+        anyhow::ensure!(
+            !host.is_empty() && !host.contains(':') && !port.is_empty(),
+            "invalid TCP target {target:?}; use host:port or [ipv6]:port"
+        );
+        let port = port
+            .parse::<u16>()
+            .with_context(|| format!("invalid TCP port in {target:?}; expected 0-65535"))?;
+        return Ok(format!("{host}:{port}"));
+    }
+    anyhow::bail!("TCP target must include a port; use host:port, for example {target}:443")
 }
 
 #[async_trait]
@@ -87,5 +111,26 @@ mod tests {
         let outcome = prober.probe(0).await;
         assert!(matches!(outcome, ProbeOutcome::Reply { .. }));
         accept_task.await.unwrap();
+    }
+
+    #[test]
+    fn tcp_target_keeps_explicit_port() {
+        assert_eq!(
+            normalize_tcp_target("example.com:443").unwrap(),
+            "example.com:443"
+        );
+        assert_eq!(normalize_tcp_target("[::1]:443").unwrap(), "[::1]:443");
+    }
+
+    #[test]
+    fn tcp_target_rejects_invalid_port() {
+        assert!(normalize_tcp_target("example.com:https").is_err());
+    }
+
+    #[test]
+    fn tcp_target_rejects_missing_port() {
+        let error = normalize_tcp_target("example.com").unwrap_err().to_string();
+
+        assert!(error.contains("TCP target must include a port"));
     }
 }
