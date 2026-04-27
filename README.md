@@ -80,6 +80,45 @@ override it. Additional request headers can be supplied with repeated
 `-H 'Name: value'` options. HTTPS uses Rustls with embedded webpki roots, so the
 scratch release image does not need an OS CA bundle.
 
+## Metrics and Pushgateway
+
+`clockping` can write one metrics event per probe and can push Prometheus text
+exposition to a Pushgateway:
+
+```sh
+clockping --metrics.file clockping.jsonl tcp -c 5 example.com:443
+clockping --metrics.file clockping.prom --metrics.format prometheus \
+  --metrics.prefix nettest --metrics.label site=tokyo tcp example.com:443
+clockping --push.url 127.0.0.1:9091 --push.label scenario=sample \
+  tcp example.com:443
+```
+
+The supported options mirror `iperf3-rs`:
+
+```text
+  --push.url URL             push interval metrics to a Pushgateway URL
+  --push.delete-on-exit      delete this Pushgateway grouping key after exit
+  --push.interval DURATION   aggregate samples before pushing window metrics
+  --push.job JOB             Pushgateway job name (default: clockping)
+  --push.label KEY=VALUE     add a Pushgateway grouping label; repeatable
+  --push.retries N           retry failed Pushgateway requests N times (default: 0)
+  --push.timeout DURATION    per-request timeout: 500ms, 5s, 1m, or seconds
+  --push.user-agent VALUE    HTTP User-Agent for Pushgateway requests
+  --metrics.file PATH        write live interval metrics to a file
+  --metrics.format FORMAT    metrics file format: jsonl or prometheus
+  --metrics.label KEY=VALUE  add a Prometheus file sample label; repeatable
+  --metrics.prefix PREFIX    Prometheus metric name prefix (default: clockping)
+```
+
+Each option also has an environment default: `CLOCKPING_PUSH_URL`,
+`CLOCKPING_PUSH_DELETE_ON_EXIT`, `CLOCKPING_PUSH_INTERVAL`,
+`CLOCKPING_PUSH_JOB`, `CLOCKPING_PUSH_LABELS`, `CLOCKPING_PUSH_RETRIES`,
+`CLOCKPING_PUSH_TIMEOUT`, `CLOCKPING_PUSH_USER_AGENT`,
+`CLOCKPING_METRICS_FILE`, `CLOCKPING_METRICS_FORMAT`,
+`CLOCKPING_METRICS_LABELS`, and `CLOCKPING_METRICS_PREFIX`.
+For migration parity with `iperf3-rs`, the matching `IPERF3_*` names are also
+accepted as fallback aliases when the `CLOCKPING_*` variable is not set.
+
 ## Tests
 
 ```sh
