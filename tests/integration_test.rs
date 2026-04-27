@@ -1,6 +1,6 @@
 use std::{
-    io::{BufRead, BufReader, Read},
-    net::{TcpListener, TcpStream, ToSocketAddrs, UdpSocket},
+    io::{BufRead, BufReader, Read, Write},
+    net::{Shutdown, TcpListener, TcpStream, ToSocketAddrs, UdpSocket},
     process::{Child, Command, ExitStatus, Output as ProcessOutput, Stdio},
     thread,
     time::{Duration, Instant},
@@ -11,7 +11,8 @@ use serde_json::Value;
 // This Docker integration test exercises clockping's protocol-facing paths
 // against real containers on one Compose network:
 // - TCP connect and HTTP HEAD use Python's http.server as the endpoint;
-// - transient TCP verifies that target-down probes keep producing timestamped events;
+// - transient TCP, HTTP, ICMP, and GTP targets verify that target-down probes
+//   keep producing timestamped events instead of leaving a silent terminal;
 // - native ICMP and external ping verify both ICMP engines inside the network;
 // - GTPv1-U, GTPv1-C, and GTPv2-C use the small Python echo responder.
 // It intentionally remains one Rust test so Compose setup is paid once while
@@ -176,7 +177,12 @@ fn version_includes_build_metadata() {
 fn docker_compose_e2e() {
     wait_for_tcp("tcp-target", 8080);
     wait_for_tcp("transient-tcp-target", 8081);
+    wait_for_tcp("transient-http-target", 8082);
+    wait_for_tcp("transient-icmp-target", 9090);
     wait_for_gtp(GtpMode::V1, "gtp-v1u-target", 2152);
+    wait_for_gtp(GtpMode::V1, "transient-gtp-v1u-target", 2152);
+    wait_for_gtp(GtpMode::V1, "transient-gtp-v1c-target", 2123);
+    wait_for_gtp(GtpMode::V2, "transient-gtp-v2c-target", 2123);
     wait_for_gtp(GtpMode::V1, "gtp-v1c-target", 2123);
     wait_for_gtp(GtpMode::V2, "gtp-v2c-target", 2123);
 
@@ -262,30 +268,63 @@ fn docker_compose_e2e() {
         "0.1",
         "transient-tcp-target:8081",
     ]);
-    let down_events = json_lines(&down_output);
-    assert_eq!(
-        down_events.len(),
-        4,
-        "clockping should keep emitting events after the target goes down: {down_output}"
-    );
-    assert_eq!(down_events[0]["status"], "reply");
-    assert_eq!(down_events[0]["ts"], "STAMP");
+    assert_timestamped_target_down_events(&down_output, "tcp");
 
-    let unavailable_events = down_events
-        .iter()
-        .filter(|event| event["status"] == "error" || event["status"] == "timeout")
-        .collect::<Vec<_>>();
-    assert!(
-        !unavailable_events.is_empty(),
-        "expected timestamped down events after target listener stopped: {down_output}"
+    let http_down_output = run_clockping(&[
+        "--timestamp-format",
+        "STAMP",
+        "--json",
+        "http",
+        "-c",
+        "4",
+        "-i",
+        "0.2",
+        "-W",
+        "0.1",
+        "http://transient-http-target:8082/",
+    ]);
+    assert_timestamped_target_down_events(&http_down_output, "http");
+
+    for (variant, target, protocol) in [
+        ("v1u", "transient-gtp-v1u-target", "gtpv1u"),
+        ("v1c", "transient-gtp-v1c-target", "gtpv1c"),
+        ("v2c", "transient-gtp-v2c-target", "gtpv2c"),
+    ] {
+        let gtp_down_output = run_clockping(&[
+            "--timestamp-format",
+            "STAMP",
+            "--json",
+            "gtp",
+            variant,
+            "-c",
+            "4",
+            "-i",
+            "0.2",
+            "-W",
+            "0.1",
+            target,
+        ]);
+        assert_timestamped_target_down_events(&gtp_down_output, protocol);
+    }
+
+    let icmp_down_output = run_clockping_after_first_line(
+        &[
+            "--timestamp-format",
+            "STAMP",
+            "--json",
+            "icmp",
+            "-4",
+            "-c",
+            "4",
+            "-i",
+            "0.3",
+            "-W",
+            "0.2",
+            "transient-icmp-target",
+        ],
+        |_| trigger_icmp_down("transient-icmp-target", 9090),
     );
-    assert!(
-        unavailable_events
-            .iter()
-            .all(|event| event["ts"] == "STAMP"),
-        "down events should carry clockping timestamps: {down_output}"
-    );
-    assert_eq!(down_events[3]["seq"], 3);
+    assert_timestamped_target_down_events(&icmp_down_output, "icmp");
 
     let icmp_output = run_clockping(&[
         "--timestamp",
@@ -438,6 +477,39 @@ fn run_clockping_raw(args: &[&str]) -> ProcessOutput {
         .expect("failed to spawn clockping")
 }
 
+fn run_clockping_after_first_line(args: &[&str], after_first_line: impl FnOnce(&str)) -> String {
+    let bin = clockping_bin();
+    eprintln!("+ {bin} {}", args.join(" "));
+    let mut child = Command::new(&bin)
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to spawn clockping");
+
+    let stdout = child.stdout.take().expect("missing stdout pipe");
+    let mut reader = BufReader::new(stdout);
+    let mut output = String::new();
+    let bytes = reader
+        .read_line(&mut output)
+        .expect("failed to read first output line");
+    assert_ne!(bytes, 0, "clockping exited before writing an event");
+
+    after_first_line(&output);
+    let status = wait_for_child(&mut child, Duration::from_secs(8));
+    reader
+        .read_to_string(&mut output)
+        .expect("failed to read remaining output");
+    let stderr = child_stderr(&mut child);
+    eprintln!("{output}{stderr}");
+
+    assert!(
+        status.success(),
+        "clockping failed with status {status}\n{output}{stderr}"
+    );
+    format!("{output}{stderr}")
+}
+
 fn clockping_bin() -> String {
     std::env::var("CLOCKPING_BIN").unwrap_or_else(|_| DEFAULT_BIN.to_string())
 }
@@ -446,6 +518,17 @@ fn combined_output(output: &ProcessOutput) -> String {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     format!("{stdout}{stderr}")
+}
+
+fn trigger_icmp_down(host: &str, port: u16) {
+    let mut stream = TcpStream::connect((host, port)).expect("failed to connect to ICMP control");
+    stream
+        .write_all(b"down")
+        .expect("failed to write ICMP down command");
+    stream
+        .shutdown(Shutdown::Write)
+        .expect("failed to close ICMP control write side");
+    thread::sleep(Duration::from_millis(100));
 }
 
 fn unused_local_tcp_addr() -> String {
@@ -500,6 +583,30 @@ fn json_lines(output: &str) -> Vec<Value> {
         .into_iter()
         .map(|line| serde_json::from_str(line).expect("invalid JSON output"))
         .collect()
+}
+
+fn assert_timestamped_target_down_events(output: &str, protocol: &str) {
+    let events = json_lines(output);
+    assert_eq!(
+        events.len(),
+        4,
+        "clockping should keep emitting events after the target goes down: {output}"
+    );
+    assert_eq!(events[0]["protocol"], protocol);
+    assert_eq!(events[0]["status"], "reply");
+    assert_eq!(events[0]["ts"], "STAMP");
+
+    for (expected_seq, event) in events.iter().enumerate().skip(1) {
+        assert_eq!(event["seq"], expected_seq, "unexpected down seq: {output}");
+        assert!(
+            event["status"] == "error" || event["status"] == "timeout",
+            "probe after target down should report unavailable: {output}"
+        );
+        assert_eq!(
+            event["ts"], "STAMP",
+            "down events should carry clockping timestamps: {output}"
+        );
+    }
 }
 
 fn output_lines(output: &str) -> Vec<&str> {

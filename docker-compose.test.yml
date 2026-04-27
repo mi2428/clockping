@@ -17,6 +17,67 @@ services:
       - --accepts-before-down
       - "2"
 
+  transient-http-target:
+    <<: *clockping-test-image
+    command:
+      - python3
+      - -u
+      - tests/e2e/transient_http_server.py
+      - --port
+      - "8082"
+      - --accepts-before-down
+      - "2"
+
+  transient-icmp-target:
+    <<: *clockping-test-image
+    cap_add:
+      - NET_ADMIN
+    command:
+      - python3
+      - -u
+      - tests/e2e/icmp_down_control.py
+      - --port
+      - "9090"
+
+  transient-gtp-v1u-target:
+    <<: *clockping-test-image
+    command:
+      - python3
+      - -u
+      - tests/e2e/transient_gtp_echo_server.py
+      - --mode
+      - v1
+      - --port
+      - "2152"
+      - --responses-before-down
+      - "2"
+
+  transient-gtp-v1c-target:
+    <<: *clockping-test-image
+    command:
+      - python3
+      - -u
+      - tests/e2e/transient_gtp_echo_server.py
+      - --mode
+      - v1
+      - --port
+      - "2123"
+      - --responses-before-down
+      - "2"
+
+  transient-gtp-v2c-target:
+    <<: *clockping-test-image
+    command:
+      - python3
+      - -u
+      - tests/e2e/transient_gtp_echo_server.py
+      - --mode
+      - v2
+      - --port
+      - "2123"
+      - --responses-before-down
+      - "2"
+
   gtp-v1u-target:
     <<: *clockping-test-image
     command: ["python3", "-u", "tests/e2e/gtp_echo_server.py", "--mode", "v1", "--port", "2152"]
@@ -37,6 +98,11 @@ services:
     depends_on:
       - tcp-target
       - transient-tcp-target
+      - transient-http-target
+      - transient-icmp-target
       - gtp-v1u-target
+      - transient-gtp-v1u-target
+      - transient-gtp-v1c-target
+      - transient-gtp-v2c-target
       - gtp-v1c-target
       - gtp-v2c-target
