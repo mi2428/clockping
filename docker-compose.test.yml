@@ -22,7 +22,6 @@ services:
     <<: *clockping-test-image
     build:
       context: .
-      dockerfile: Dockerfile.test
       target: integration-test
     depends_on:
       - tcp-target
