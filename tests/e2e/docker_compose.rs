@@ -1,7 +1,7 @@
 use super::helpers::*;
 
-// This Docker integration test exercises clockping's protocol-facing paths
-// against real containers on one Compose network:
+// This Docker E2E test exercises clockping's protocol-facing paths against
+// real containers on one Compose network:
 // - TCP connect and HTTP HEAD use Python's http.server as the endpoint;
 // - transient TCP, HTTP, ICMP, and GTP targets verify that target-down probes
 //   keep producing timestamped events instead of leaving a silent terminal;

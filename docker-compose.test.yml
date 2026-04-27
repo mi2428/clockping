@@ -7,7 +7,7 @@ services:
     command:
       - python3
       - -u
-      - tests/e2e/transient_tcp_server.py
+      - tests/e2e/fixtures/transient_tcp_server.py
       - --port
       - "8081"
       - --accepts-before-down
@@ -18,7 +18,7 @@ services:
     command:
       - python3
       - -u
-      - tests/e2e/transient_http_server.py
+      - tests/e2e/fixtures/transient_http_server.py
       - --port
       - "8082"
       - --accepts-before-down
@@ -31,7 +31,7 @@ services:
     command:
       - python3
       - -u
-      - tests/e2e/icmp_down_control.py
+      - tests/e2e/fixtures/icmp_down_control.py
       - --port
       - "9090"
 
@@ -40,7 +40,7 @@ services:
     command:
       - python3
       - -u
-      - tests/e2e/transient_gtp_echo_server.py
+      - tests/e2e/fixtures/transient_gtp_echo_server.py
       - --mode
       - v1
       - --port
@@ -53,7 +53,7 @@ services:
     command:
       - python3
       - -u
-      - tests/e2e/transient_gtp_echo_server.py
+      - tests/e2e/fixtures/transient_gtp_echo_server.py
       - --mode
       - v1
       - --port
@@ -66,7 +66,7 @@ services:
     command:
       - python3
       - -u
-      - tests/e2e/transient_gtp_echo_server.py
+      - tests/e2e/fixtures/transient_gtp_echo_server.py
       - --mode
       - v2
       - --port
@@ -80,21 +80,21 @@ services:
 
   gtp-v1u-target:
     <<: *clockping-test-image
-    command: ["python3", "-u", "tests/e2e/gtp_echo_server.py", "--mode", "v1", "--port", "2152"]
+    command: ["python3", "-u", "tests/e2e/fixtures/gtp_echo_server.py", "--mode", "v1", "--port", "2152"]
 
   gtp-v1c-target:
     <<: *clockping-test-image
-    command: ["python3", "-u", "tests/e2e/gtp_echo_server.py", "--mode", "v1", "--port", "2123"]
+    command: ["python3", "-u", "tests/e2e/fixtures/gtp_echo_server.py", "--mode", "v1", "--port", "2123"]
 
   gtp-v2c-target:
     <<: *clockping-test-image
-    command: ["python3", "-u", "tests/e2e/gtp_echo_server.py", "--mode", "v2", "--port", "2123"]
+    command: ["python3", "-u", "tests/e2e/fixtures/gtp_echo_server.py", "--mode", "v2", "--port", "2123"]
 
   sut:
     <<: *clockping-test-image
     build:
       context: .
-      target: integration-test
+      target: e2e-test
     depends_on:
       - transient-tcp-target
       - transient-http-target

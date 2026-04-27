@@ -167,10 +167,13 @@ doc: ## Build rustdoc with warnings treated as errors
 test: ## Run unit tests
 	@$(CARGO_ENV) $(CARGO) test
 
-.PHONY: integration
-integration: ## Run Docker Compose integration tests
+.PHONY: e2e
+e2e: ## Run Docker Compose E2E tests
 	@trap '$(COMPOSE) -f $(TEST_COMPOSE) down --remove-orphans >/dev/null 2>&1 || true' EXIT; \
 	$(COMPOSE) -f $(TEST_COMPOSE) up --build --abort-on-container-exit --exit-code-from sut
+
+.PHONY: integration
+integration: e2e ## Alias for e2e
 
 .PHONY: check
 check: ## Run formatting, lint, rustdoc, tests, and completion checks
@@ -409,7 +412,7 @@ help: ## Show this help message
 	@printf "\n\033[1mExamples:\033[0m\n"
 	@printf "  \033[36m%-42s\033[0m # to check formatting without writing\n" "make fmt CHECK_ONLY=1"
 	@printf "  \033[36m%-42s\033[0m # to build and install the host binary and completions\n" "make install COMPLETION=1"
-	@printf "  \033[36m%-42s\033[0m # to run all local quality gates\n" "make check integration"
+	@printf "  \033[36m%-42s\033[0m # to run all local quality gates and Docker E2E\n" "make check e2e"
 	@printf "  \033[36m%-42s\033[0m # to push the release tag that triggers CI release\n" "make release TAG=v1.0.0"
 	@printf "  \033[36m%-42s\033[0m # to build release binaries and checksums\n" "make dist OS=darwin,linux ARCH=amd64,arm64"
 	@printf "  \033[36m%-42s\033[0m # to prepare a Linux VM for manual testing\n" "make multipass"

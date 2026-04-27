@@ -6,24 +6,24 @@ ARG RUNTIME_IMAGE_TAG=bookworm-slim
 ARG RELEASE_BUILD_IMAGE=rust
 ARG RELEASE_BUILD_IMAGE_TAG=1.95-alpine
 
-FROM ${BUILD_IMAGE}:${BUILD_IMAGE_TAG} AS integration-build
+FROM ${BUILD_IMAGE}:${BUILD_IMAGE_TAG} AS e2e-build
 
 WORKDIR /workspace
 COPY . .
 
 RUN --mount=type=cache,id=clockping-cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,id=clockping-cargo-git,target=/usr/local/cargo/git,sharing=locked \
-    --mount=type=cache,id=clockping-integration-target,target=/workspace/target,sharing=locked \
-    rm -f target/debug/deps/integration_test-* \
+    --mount=type=cache,id=clockping-e2e-target,target=/workspace/target,sharing=locked \
+    rm -f target/debug/deps/e2e_test-* \
  && cargo build --locked \
- && cargo test --locked --test integration_test --no-run \
+ && cargo test --locked --test e2e_test --no-run \
  && mkdir -p /out \
  && install -m 0755 target/debug/clockping /out/clockping \
- && test_bin="$(find target/debug/deps -maxdepth 1 -type f -name 'integration_test-*' -perm /111 | head -n 1)" \
+ && test_bin="$(find target/debug/deps -maxdepth 1 -type f -name 'e2e_test-*' -perm /111 | head -n 1)" \
  && test -n "$test_bin" \
- && install -m 0755 "$test_bin" /out/clockping-integration-test
+ && install -m 0755 "$test_bin" /out/clockping-e2e-test
 
-FROM ${RUNTIME_IMAGE}:${RUNTIME_IMAGE_TAG} AS integration-test
+FROM ${RUNTIME_IMAGE}:${RUNTIME_IMAGE_TAG} AS e2e-test
 
 # hadolint ignore=DL3008
 RUN apt-get update \
@@ -35,12 +35,12 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /work
-COPY --from=integration-build /out/clockping /usr/local/bin/clockping
-COPY --from=integration-build /out/clockping-integration-test /usr/local/bin/clockping-integration-test
+COPY --from=e2e-build /out/clockping /usr/local/bin/clockping
+COPY --from=e2e-build /out/clockping-e2e-test /usr/local/bin/clockping-e2e-test
 COPY tests/e2e/ tests/e2e/
 
 ENV CLOCKPING_BIN=/usr/local/bin/clockping
-CMD ["/usr/local/bin/clockping-integration-test", "--ignored", "--nocapture"]
+CMD ["/usr/local/bin/clockping-e2e-test", "--ignored", "--nocapture"]
 
 FROM ${RELEASE_BUILD_IMAGE}:${RELEASE_BUILD_IMAGE_TAG} AS release-build
 

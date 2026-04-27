@@ -139,11 +139,11 @@ accepted as fallback aliases when the `CLOCKPING_*` variable is not set.
 
 ```sh
 make check
-make integration
+make e2e
 ```
 
 The Docker Compose e2e test starts TCP and GTP targets on a private Docker
-network, then runs the ignored Rust integration test in `tests/integration_test.rs`
+network, then runs the ignored Rust E2E test in `tests/e2e_test.rs`
 against those targets. It covers
 native ICMP, external `--pinger`, TCP, HTTP, GTPv1-U, GTPv1-C, GTPv2-C, and JSON
 timestamp formatting.
