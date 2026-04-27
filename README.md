@@ -1,7 +1,6 @@
 # clockping
 
-`clockping` timestamps every probe result so you can see exactly when a target stopped replying and when it recovered.
-It supports ICMP, TCP, HTTP, and GTP, and can probe multiple targets in one run.
+A multi-protocol, multi-target pinger for watching hosts go dark.
 
 ## Installation
 
@@ -353,6 +352,14 @@ $ make release TAG=v1.0.0
 The release target builds `dist/` binaries and checksums, pushes the multi-arch scratch image to GHCR, creates or updates the GitHub Release, and publishes the Homebrew formula.
 It expects `gh` to be authenticated, Docker Buildx to be able to push `linux/amd64,linux/arm64` images, and [`../homebrew-clockping`](https://github.com/mi2428/homebrew-clockping) to be a clean local checkout of the tap repo.
 Set `HOMEBREW_TAP=0` to skip the Homebrew tap update.
+
+> [!NOTE]
+> If GHCR push fails with `denied: permission_denied: The token provided does not match expected scopes.`, refresh Docker's GHCR credentials and rerun the release.
+>
+> ```console
+> $ docker logout ghcr.io
+> $ docker login ghcr.io
+> ```
 
 ## License
 
