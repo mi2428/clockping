@@ -75,6 +75,253 @@ impl MetricsOptions {
     }
 }
 
+#[derive(Debug)]
+struct MetricsOptionState {
+    options: RawMetricsOptions,
+    seen: SeenMetricsOptions,
+}
+
+#[derive(Debug)]
+struct RawMetricsOptions {
+    push_url: Option<String>,
+    push_job: String,
+    push_labels: Vec<(String, String)>,
+    push_timeout: Duration,
+    push_retries: u32,
+    push_user_agent: String,
+    metrics_prefix: String,
+    push_interval: Option<Duration>,
+    push_delete_on_exit: bool,
+    metrics_file: Option<PathBuf>,
+    metrics_format: MetricsFileFormat,
+    metrics_labels: Vec<(String, String)>,
+}
+
+#[derive(Debug, Default)]
+struct SeenMetricsOptions {
+    push_job: bool,
+    push_label: bool,
+    push_setting: bool,
+    metrics_setting: bool,
+    metrics_label: bool,
+    metric_prefix: bool,
+}
+
+impl MetricsOptionState {
+    fn from_env(get_env: &mut impl FnMut(&str) -> Option<String>) -> anyhow::Result<Self> {
+        let push_url = env_value(get_env, "CLOCKPING_PUSH_URL", "IPERF3_PUSH_URL");
+        let push_job = env_value(get_env, "CLOCKPING_PUSH_JOB", "IPERF3_PUSH_JOB")
+            .unwrap_or_else(|| PushGatewayConfig::DEFAULT_JOB.to_owned());
+        let push_labels = env_value(get_env, "CLOCKPING_PUSH_LABELS", "IPERF3_PUSH_LABELS")
+            .map(|raw| parse_env_labels("CLOCKPING_PUSH_LABELS", &raw, true))
+            .transpose()?
+            .unwrap_or_default();
+        let push_timeout = env_value(get_env, "CLOCKPING_PUSH_TIMEOUT", "IPERF3_PUSH_TIMEOUT")
+            .map(|raw| parse_duration_option("CLOCKPING_PUSH_TIMEOUT", &raw))
+            .transpose()?
+            .unwrap_or_else(PushGatewayConfig::default_timeout);
+        let push_retries = env_value(get_env, "CLOCKPING_PUSH_RETRIES", "IPERF3_PUSH_RETRIES")
+            .map(|raw| parse_retries("CLOCKPING_PUSH_RETRIES", &raw))
+            .transpose()?
+            .unwrap_or(PushGatewayConfig::DEFAULT_RETRIES);
+        let push_user_agent = env_value(
+            get_env,
+            "CLOCKPING_PUSH_USER_AGENT",
+            "IPERF3_PUSH_USER_AGENT",
+        )
+        .map(|raw| parse_user_agent("CLOCKPING_PUSH_USER_AGENT", &raw))
+        .transpose()?
+        .unwrap_or_else(PushGatewayConfig::default_user_agent);
+        let metrics_prefix =
+            env_value(get_env, "CLOCKPING_METRICS_PREFIX", "IPERF3_METRICS_PREFIX")
+                .map(|raw| parse_metric_prefix("CLOCKPING_METRICS_PREFIX", &raw))
+                .transpose()?
+                .unwrap_or_else(|| PushGatewayConfig::DEFAULT_METRIC_PREFIX.to_owned());
+        let push_interval = env_value(get_env, "CLOCKPING_PUSH_INTERVAL", "IPERF3_PUSH_INTERVAL")
+            .map(|raw| parse_duration_option("CLOCKPING_PUSH_INTERVAL", &raw))
+            .transpose()?;
+        let push_delete_on_exit = env_value(
+            get_env,
+            "CLOCKPING_PUSH_DELETE_ON_EXIT",
+            "IPERF3_PUSH_DELETE_ON_EXIT",
+        )
+        .map(|raw| parse_bool_option("CLOCKPING_PUSH_DELETE_ON_EXIT", &raw))
+        .transpose()?
+        .unwrap_or(false);
+        let metrics_file =
+            env_value(get_env, "CLOCKPING_METRICS_FILE", "IPERF3_METRICS_FILE").map(PathBuf::from);
+        let raw_metrics_format =
+            env_value(get_env, "CLOCKPING_METRICS_FORMAT", "IPERF3_METRICS_FORMAT");
+        let metrics_format = raw_metrics_format
+            .as_deref()
+            .map(|raw| parse_metrics_format("CLOCKPING_METRICS_FORMAT", raw))
+            .transpose()?
+            .unwrap_or(MetricsFileFormat::Jsonl);
+        let metrics_labels =
+            env_value(get_env, "CLOCKPING_METRICS_LABELS", "IPERF3_METRICS_LABELS")
+                .map(|raw| parse_env_labels("CLOCKPING_METRICS_LABELS", &raw, false))
+                .transpose()?
+                .unwrap_or_default();
+
+        let seen = SeenMetricsOptions {
+            push_label: !push_labels.is_empty(),
+            metrics_setting: raw_metrics_format.is_some(),
+            metrics_label: !metrics_labels.is_empty(),
+            ..SeenMetricsOptions::default()
+        };
+
+        Ok(Self {
+            options: RawMetricsOptions {
+                push_url,
+                push_job,
+                push_labels,
+                push_timeout,
+                push_retries,
+                push_user_agent,
+                metrics_prefix,
+                push_interval,
+                push_delete_on_exit,
+                metrics_file,
+                metrics_format,
+                metrics_labels,
+            },
+            seen,
+        })
+    }
+
+    fn apply_inline_option(&mut self, key: &str, value: &str) -> anyhow::Result<bool> {
+        self.apply_value_option(key, value)
+    }
+
+    fn apply_value_option(&mut self, option: &str, value: &str) -> anyhow::Result<bool> {
+        match option {
+            "--push.url" => self.options.push_url = Some(value.to_owned()),
+            "--push.job" => {
+                self.options.push_job = value.to_owned();
+                self.seen.push_job = true;
+            }
+            "--push.label" => {
+                self.options
+                    .push_labels
+                    .push(parse_label(option, value, true)?);
+                self.seen.push_label = true;
+            }
+            "--metrics.label" => {
+                self.options
+                    .metrics_labels
+                    .push(parse_label(option, value, false)?);
+                self.seen.metrics_label = true;
+            }
+            "--push.timeout" => {
+                self.options.push_timeout = parse_duration_option(option, value)?;
+                self.seen.push_setting = true;
+            }
+            "--push.retries" => {
+                self.options.push_retries = parse_retries(option, value)?;
+                self.seen.push_setting = true;
+            }
+            "--push.user-agent" => {
+                self.options.push_user_agent = parse_user_agent(option, value)?;
+                self.seen.push_setting = true;
+            }
+            "--metrics.prefix" => {
+                self.options.metrics_prefix = parse_metric_prefix(option, value)?;
+                self.seen.metric_prefix = true;
+            }
+            "--push.interval" => {
+                self.options.push_interval = Some(parse_duration_option(option, value)?);
+                self.seen.push_setting = true;
+            }
+            "--push.delete-on-exit" => {
+                self.options.push_delete_on_exit = parse_bool_option(option, value)?;
+                self.seen.push_setting = true;
+            }
+            "--metrics.file" => self.options.metrics_file = Some(PathBuf::from(value)),
+            "--metrics.format" => {
+                self.options.metrics_format = parse_metrics_format(option, value)?;
+                self.seen.metrics_setting = true;
+            }
+            _ => return Ok(false),
+        }
+        Ok(true)
+    }
+
+    fn apply_separate_option(
+        &mut self,
+        args: &[OsString],
+        index: &mut usize,
+        option: &str,
+    ) -> anyhow::Result<bool> {
+        match option {
+            "--push.delete-on-exit" => {
+                self.options.push_delete_on_exit = true;
+                self.seen.push_setting = true;
+                *index += 1;
+            }
+            "--metrics.file" => {
+                self.options.metrics_file = Some(take_path_value(args, index, option)?)
+            }
+            option if option_accepts_string_value(option) => {
+                let value = take_string_value(args, index, option)?;
+                self.apply_value_option(option, &value)?;
+            }
+            _ => return Ok(false),
+        }
+        Ok(true)
+    }
+
+    fn finish(self, informational: bool) -> anyhow::Result<MetricsOptions> {
+        let push_url = self
+            .options
+            .push_url
+            .as_deref()
+            .map(parse_url)
+            .transpose()?;
+        if !informational {
+            validate_option_dependencies(ValidationContext {
+                push_enabled: push_url.is_some(),
+                file_enabled: self.options.metrics_file.is_some(),
+                seen: &self.seen,
+                metrics_format: self.options.metrics_format,
+                push_job: &self.options.push_job,
+                push_labels: &self.options.push_labels,
+                metrics_labels: &self.options.metrics_labels,
+            })?;
+        }
+
+        Ok(MetricsOptions {
+            push_url,
+            push_job: self.options.push_job,
+            push_labels: self.options.push_labels,
+            push_timeout: self.options.push_timeout,
+            push_retries: self.options.push_retries,
+            push_user_agent: self.options.push_user_agent,
+            metrics_prefix: self.options.metrics_prefix,
+            push_interval: self.options.push_interval,
+            push_delete_on_exit: self.options.push_delete_on_exit,
+            metrics_file: self.options.metrics_file,
+            metrics_format: self.options.metrics_format,
+            metrics_labels: self.options.metrics_labels,
+        })
+    }
+}
+
+fn option_accepts_string_value(option: &str) -> bool {
+    matches!(
+        option,
+        "--push.url"
+            | "--push.job"
+            | "--push.label"
+            | "--metrics.label"
+            | "--push.timeout"
+            | "--push.retries"
+            | "--push.user-agent"
+            | "--metrics.prefix"
+            | "--push.interval"
+            | "--metrics.format"
+    )
+}
+
 pub fn extract_metrics_options(
     args: Vec<OsString>,
 ) -> anyhow::Result<(MetricsOptions, Vec<OsString>)> {
@@ -98,95 +345,7 @@ fn extract_metrics_options_with_env(
         if informational { None } else { get_env(key) }
     };
 
-    let mut push_url = env_value(&mut env_lookup, "CLOCKPING_PUSH_URL", "IPERF3_PUSH_URL");
-    let mut push_job = env_value(&mut env_lookup, "CLOCKPING_PUSH_JOB", "IPERF3_PUSH_JOB")
-        .unwrap_or_else(|| PushGatewayConfig::DEFAULT_JOB.to_owned());
-    let mut push_labels = env_value(
-        &mut env_lookup,
-        "CLOCKPING_PUSH_LABELS",
-        "IPERF3_PUSH_LABELS",
-    )
-    .map(|raw| parse_env_labels("CLOCKPING_PUSH_LABELS", &raw, true))
-    .transpose()?
-    .unwrap_or_default();
-    let mut push_timeout = env_value(
-        &mut env_lookup,
-        "CLOCKPING_PUSH_TIMEOUT",
-        "IPERF3_PUSH_TIMEOUT",
-    )
-    .map(|raw| parse_duration_option("CLOCKPING_PUSH_TIMEOUT", &raw))
-    .transpose()?
-    .unwrap_or_else(PushGatewayConfig::default_timeout);
-    let mut push_retries = env_value(
-        &mut env_lookup,
-        "CLOCKPING_PUSH_RETRIES",
-        "IPERF3_PUSH_RETRIES",
-    )
-    .map(|raw| parse_retries("CLOCKPING_PUSH_RETRIES", &raw))
-    .transpose()?
-    .unwrap_or(PushGatewayConfig::DEFAULT_RETRIES);
-    let mut push_user_agent = env_value(
-        &mut env_lookup,
-        "CLOCKPING_PUSH_USER_AGENT",
-        "IPERF3_PUSH_USER_AGENT",
-    )
-    .map(|raw| parse_user_agent("CLOCKPING_PUSH_USER_AGENT", &raw))
-    .transpose()?
-    .unwrap_or_else(PushGatewayConfig::default_user_agent);
-    let mut metrics_prefix = env_value(
-        &mut env_lookup,
-        "CLOCKPING_METRICS_PREFIX",
-        "IPERF3_METRICS_PREFIX",
-    )
-    .map(|raw| parse_metric_prefix("CLOCKPING_METRICS_PREFIX", &raw))
-    .transpose()?
-    .unwrap_or_else(|| PushGatewayConfig::DEFAULT_METRIC_PREFIX.to_owned());
-    let mut push_interval = env_value(
-        &mut env_lookup,
-        "CLOCKPING_PUSH_INTERVAL",
-        "IPERF3_PUSH_INTERVAL",
-    )
-    .map(|raw| parse_duration_option("CLOCKPING_PUSH_INTERVAL", &raw))
-    .transpose()?;
-    let mut push_delete_on_exit = env_value(
-        &mut env_lookup,
-        "CLOCKPING_PUSH_DELETE_ON_EXIT",
-        "IPERF3_PUSH_DELETE_ON_EXIT",
-    )
-    .map(|raw| parse_bool_option("CLOCKPING_PUSH_DELETE_ON_EXIT", &raw))
-    .transpose()?
-    .unwrap_or(false);
-    let mut metrics_file = env_value(
-        &mut env_lookup,
-        "CLOCKPING_METRICS_FILE",
-        "IPERF3_METRICS_FILE",
-    )
-    .map(PathBuf::from);
-    let raw_metrics_format = env_value(
-        &mut env_lookup,
-        "CLOCKPING_METRICS_FORMAT",
-        "IPERF3_METRICS_FORMAT",
-    );
-    let mut metrics_format = raw_metrics_format
-        .as_deref()
-        .map(|raw| parse_metrics_format("CLOCKPING_METRICS_FORMAT", raw))
-        .transpose()?
-        .unwrap_or(MetricsFileFormat::Jsonl);
-    let mut metrics_labels = env_value(
-        &mut env_lookup,
-        "CLOCKPING_METRICS_LABELS",
-        "IPERF3_METRICS_LABELS",
-    )
-    .map(|raw| parse_env_labels("CLOCKPING_METRICS_LABELS", &raw, false))
-    .transpose()?
-    .unwrap_or_default();
-
-    let mut saw_push_job = false;
-    let mut saw_push_label = !push_labels.is_empty();
-    let mut saw_push_setting = false;
-    let mut saw_metrics_setting = raw_metrics_format.is_some();
-    let mut saw_metrics_label = !metrics_labels.is_empty();
-    let mut saw_metric_prefix = false;
+    let mut state = MetricsOptionState::from_env(&mut env_lookup)?;
 
     let mut i = 0;
     while i < rest.len() {
@@ -203,197 +362,66 @@ fn extract_metrics_options_with_env(
         };
 
         if let Some((key, value)) = split_long_value(arg_text) {
-            match key {
-                "--push.url" => push_url = Some(value.to_owned()),
-                "--push.job" => {
-                    push_job = value.to_owned();
-                    saw_push_job = true;
-                }
-                "--push.label" => {
-                    push_labels.push(parse_label("--push.label", value, true)?);
-                    saw_push_label = true;
-                }
-                "--metrics.label" => {
-                    metrics_labels.push(parse_label("--metrics.label", value, false)?);
-                    saw_metrics_label = true;
-                }
-                "--push.timeout" => {
-                    push_timeout = parse_duration_option("--push.timeout", value)?;
-                    saw_push_setting = true;
-                }
-                "--push.retries" => {
-                    push_retries = parse_retries("--push.retries", value)?;
-                    saw_push_setting = true;
-                }
-                "--push.user-agent" => {
-                    push_user_agent = parse_user_agent("--push.user-agent", value)?;
-                    saw_push_setting = true;
-                }
-                "--metrics.prefix" => {
-                    metrics_prefix = parse_metric_prefix("--metrics.prefix", value)?;
-                    saw_metric_prefix = true;
-                }
-                "--push.interval" => {
-                    push_interval = Some(parse_duration_option("--push.interval", value)?);
-                    saw_push_setting = true;
-                }
-                "--push.delete-on-exit" => {
-                    push_delete_on_exit = parse_bool_option("--push.delete-on-exit", value)?;
-                    saw_push_setting = true;
-                }
-                "--metrics.file" => metrics_file = Some(PathBuf::from(value)),
-                "--metrics.format" => {
-                    metrics_format = parse_metrics_format("--metrics.format", value)?;
-                    saw_metrics_setting = true;
-                }
-                _ => pass_through.push(arg.clone()),
+            if state.apply_inline_option(key, value)? {
+                i += 1;
+                continue;
             }
+            pass_through.push(arg.clone());
             i += 1;
             continue;
         }
 
-        match arg_text {
-            "--push.url" => push_url = Some(take_string_value(&rest, &mut i, "--push.url")?),
-            "--push.job" => {
-                push_job = take_string_value(&rest, &mut i, "--push.job")?;
-                saw_push_job = true;
-            }
-            "--push.label" => {
-                let value = take_string_value(&rest, &mut i, "--push.label")?;
-                push_labels.push(parse_label("--push.label", &value, true)?);
-                saw_push_label = true;
-            }
-            "--metrics.label" => {
-                let value = take_string_value(&rest, &mut i, "--metrics.label")?;
-                metrics_labels.push(parse_label("--metrics.label", &value, false)?);
-                saw_metrics_label = true;
-            }
-            "--push.timeout" => {
-                let value = take_string_value(&rest, &mut i, "--push.timeout")?;
-                push_timeout = parse_duration_option("--push.timeout", &value)?;
-                saw_push_setting = true;
-            }
-            "--push.retries" => {
-                let value = take_string_value(&rest, &mut i, "--push.retries")?;
-                push_retries = parse_retries("--push.retries", &value)?;
-                saw_push_setting = true;
-            }
-            "--push.user-agent" => {
-                let value = take_string_value(&rest, &mut i, "--push.user-agent")?;
-                push_user_agent = parse_user_agent("--push.user-agent", &value)?;
-                saw_push_setting = true;
-            }
-            "--metrics.prefix" => {
-                let value = take_string_value(&rest, &mut i, "--metrics.prefix")?;
-                metrics_prefix = parse_metric_prefix("--metrics.prefix", &value)?;
-                saw_metric_prefix = true;
-            }
-            "--push.interval" => {
-                let value = take_string_value(&rest, &mut i, "--push.interval")?;
-                push_interval = Some(parse_duration_option("--push.interval", &value)?);
-                saw_push_setting = true;
-            }
-            "--push.delete-on-exit" => {
-                push_delete_on_exit = true;
-                saw_push_setting = true;
-                i += 1;
-            }
-            "--metrics.file" => {
-                metrics_file = Some(take_path_value(&rest, &mut i, "--metrics.file")?)
-            }
-            "--metrics.format" => {
-                let value = take_string_value(&rest, &mut i, "--metrics.format")?;
-                metrics_format = parse_metrics_format("--metrics.format", &value)?;
-                saw_metrics_setting = true;
-            }
-            _ => {
-                pass_through.push(arg.clone());
-                i += 1;
-            }
+        if state.apply_separate_option(&rest, &mut i, arg_text)? {
+            continue;
         }
+
+        pass_through.push(arg.clone());
+        i += 1;
     }
 
-    let push_url = push_url.as_deref().map(parse_url).transpose()?;
-    if !informational {
-        validate_option_dependencies(
-            push_url.is_some(),
-            metrics_file.is_some(),
-            saw_push_job,
-            saw_push_label,
-            saw_push_setting,
-            saw_metrics_setting,
-            saw_metrics_label,
-            saw_metric_prefix,
-            metrics_format,
-            &push_job,
-            &push_labels,
-            &metrics_labels,
-        )?;
-    }
-
-    Ok((
-        MetricsOptions {
-            push_url,
-            push_job,
-            push_labels,
-            push_timeout,
-            push_retries,
-            push_user_agent,
-            metrics_prefix,
-            push_interval,
-            push_delete_on_exit,
-            metrics_file,
-            metrics_format,
-            metrics_labels,
-        },
-        pass_through,
-    ))
+    Ok((state.finish(informational)?, pass_through))
 }
 
-#[allow(clippy::too_many_arguments)]
-fn validate_option_dependencies(
+struct ValidationContext<'a> {
     push_enabled: bool,
     file_enabled: bool,
-    saw_push_job: bool,
-    saw_push_label: bool,
-    saw_push_setting: bool,
-    saw_metrics_setting: bool,
-    saw_metrics_label: bool,
-    saw_metric_prefix: bool,
+    seen: &'a SeenMetricsOptions,
     metrics_format: MetricsFileFormat,
-    push_job: &str,
-    push_labels: &[(String, String)],
-    metrics_labels: &[(String, String)],
-) -> anyhow::Result<()> {
-    if !push_enabled && saw_push_job {
+    push_job: &'a str,
+    push_labels: &'a [(String, String)],
+    metrics_labels: &'a [(String, String)],
+}
+
+fn validate_option_dependencies(context: ValidationContext<'_>) -> anyhow::Result<()> {
+    if !context.push_enabled && context.seen.push_job {
         anyhow::bail!("--push.job requires --push.url or CLOCKPING_PUSH_URL");
     }
-    if !push_enabled && saw_push_label {
+    if !context.push_enabled && context.seen.push_label {
         anyhow::bail!("--push.label requires --push.url or CLOCKPING_PUSH_URL");
     }
-    if !push_enabled && saw_push_setting {
+    if !context.push_enabled && context.seen.push_setting {
         anyhow::bail!("push settings require --push.url or CLOCKPING_PUSH_URL");
     }
-    if !file_enabled && saw_metrics_setting {
+    if !context.file_enabled && context.seen.metrics_setting {
         anyhow::bail!("metrics settings require --metrics.file or CLOCKPING_METRICS_FILE");
     }
-    if !file_enabled && saw_metrics_label {
+    if !context.file_enabled && context.seen.metrics_label {
         anyhow::bail!("--metrics.label requires --metrics.file or CLOCKPING_METRICS_FILE");
     }
-    if saw_metrics_label && metrics_format != MetricsFileFormat::Prometheus {
+    if context.seen.metrics_label && context.metrics_format != MetricsFileFormat::Prometheus {
         anyhow::bail!("--metrics.label requires --metrics.format prometheus");
     }
-    if !push_enabled && !file_enabled && saw_metric_prefix {
+    if !context.push_enabled && !context.file_enabled && context.seen.metric_prefix {
         anyhow::bail!(
             "metric prefix requires --metrics.file, CLOCKPING_METRICS_FILE, --push.url, or CLOCKPING_PUSH_URL"
         );
     }
-    if push_enabled && push_job.is_empty() {
+    if context.push_enabled && context.push_job.is_empty() {
         anyhow::bail!("--push.job must not be empty when --push.url is set");
     }
-    reject_duplicate_push_labels(push_labels)?;
-    reject_duplicate_labels(metrics_labels)?;
-    reject_dynamic_metric_labels(metrics_labels)?;
+    reject_duplicate_push_labels(context.push_labels)?;
+    reject_duplicate_labels(context.metrics_labels)?;
+    reject_dynamic_metric_labels(context.metrics_labels)?;
     Ok(())
 }
 
