@@ -23,9 +23,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.test
+      target: integration-test
     depends_on:
       - tcp-target
       - gtp-v1u-target
       - gtp-v1c-target
       - gtp-v2c-target
-    command: ["bash", "tests/e2e/run.sh"]

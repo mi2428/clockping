@@ -51,6 +51,7 @@ docker compose -f docker-compose.test.yml up --build --abort-on-container-exit -
 ```
 
 The Docker Compose e2e test starts TCP and GTP targets on a private Docker
-network, then runs the built `clockping` binary against those targets. It covers
+network, then runs the ignored Rust integration test in `tests/integration_test.rs`
+against those targets. It covers
 native ICMP, external `--pinger`, TCP, GTPv1-U, GTPv1-C, GTPv2-C, and JSON
 timestamp formatting.
