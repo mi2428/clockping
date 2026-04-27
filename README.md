@@ -354,11 +354,13 @@ It expects `gh` to be authenticated, Docker Buildx to be able to push `linux/amd
 Set `HOMEBREW_TAP=0` to skip the Homebrew tap update.
 
 > [!NOTE]
-> If GHCR push fails with `denied: permission_denied: The token provided does not match expected scopes.`, refresh Docker's GHCR credentials and rerun the release.
+> If GHCR push fails with `denied: permission_denied: The token provided does not match expected scopes.`, Docker is probably using a saved `ghcr.io` token that lacks package scopes.
+> Refresh `gh` with package scopes, replace Docker's GHCR credentials, and rerun the release.
 >
 > ```console
 > $ docker logout ghcr.io
-> $ docker login ghcr.io
+> $ gh auth refresh -s read:packages,write:packages
+> $ gh auth token | docker login ghcr.io -u username --password-stdin
 > ```
 
 ## License
