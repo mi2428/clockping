@@ -245,7 +245,8 @@ while True:
     time.sleep(10)
 "#;
     let bin = clockping_bin();
-    let mut child = Command::new(&bin)
+    let mut command = Command::new(&bin);
+    command
         .args([
             "--timestamp-format",
             "STAMP",
@@ -256,9 +257,9 @@ while True:
             script,
         ])
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("failed to spawn clockping");
+        .stderr(Stdio::piped());
+    set_own_process_group(&mut command);
+    let mut child = command.spawn().expect("failed to spawn clockping");
 
     let stdout = child.stdout.take().expect("missing stdout pipe");
     let mut reader = BufReader::new(stdout);
@@ -269,11 +270,7 @@ while True:
     assert_ne!(bytes, 0, "clockping exited before mock pinger output");
     assert_contains(&stdout, "STAMP PING mock");
 
-    let signal_status = Command::new("kill")
-        .args(["-INT", &child.id().to_string()])
-        .status()
-        .expect("failed to send SIGINT");
-    assert!(signal_status.success(), "failed to send SIGINT");
+    interrupt_process_group(child.id());
 
     let status = wait_for_child(&mut child, Duration::from_secs(5));
     reader
@@ -798,6 +795,13 @@ fn docker_compose_e2e() {
     assert_contains(&wrapper_output, "PING tcp-target");
     assert_contains(&wrapper_output, "1 received");
 
+    #[cfg(unix)]
+    {
+        let sigint_output = run_external_ping_until_sigint_stats(find_ping(), "tcp-target");
+        assert_contains(&sigint_output, "STAMP PING tcp-target");
+        assert_external_ping_stats_are_raw(&sigint_output);
+    }
+
     let gtp_v1u_output = run_clockping(&[
         "--timestamp",
         "none",
@@ -947,6 +951,41 @@ fn run_clockping_after_first_line(args: &[&str], after_first_line: impl FnOnce(&
     assert!(
         status.success(),
         "clockping failed with status {status}\n{output}{stderr}"
+    );
+    format!("{output}{stderr}")
+}
+
+#[cfg(unix)]
+fn run_external_ping_until_sigint_stats(ping: &str, target: &str) -> String {
+    let bin = clockping_bin();
+    let pinger_arg = format!("--pinger={ping}");
+    let mut command = Command::new(&bin);
+    command
+        .args(["--timestamp-format", "STAMP", "icmp", &pinger_arg, target])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    set_own_process_group(&mut command);
+    let mut child = command.spawn().expect("failed to spawn clockping");
+
+    let stdout = child.stdout.take().expect("missing stdout pipe");
+    let mut reader = BufReader::new(stdout);
+    let mut output = String::new();
+    let bytes = reader
+        .read_line(&mut output)
+        .expect("failed to read first external ping line");
+    assert_ne!(bytes, 0, "clockping exited before external ping output");
+
+    interrupt_process_group(child.id());
+    let status = wait_for_child(&mut child, Duration::from_secs(5));
+    reader
+        .read_to_string(&mut output)
+        .expect("failed to read remaining external ping output");
+    let stderr = child_stderr(&mut child);
+    eprintln!("{output}{stderr}");
+
+    assert!(
+        status.success(),
+        "expected external ping SIGINT to exit successfully, got {status}\nstdout:\n{output}\nstderr:\n{stderr}"
     );
     format!("{output}{stderr}")
 }
@@ -1120,6 +1159,27 @@ fn wait_for_child(child: &mut Child, timeout: Duration) -> ExitStatus {
     }
 }
 
+#[cfg(unix)]
+fn set_own_process_group(command: &mut Command) {
+    use std::os::unix::process::CommandExt;
+
+    command.process_group(0);
+}
+
+#[cfg(unix)]
+fn interrupt_process_group(pid: u32) {
+    let process_group = -(pid as libc::pid_t);
+    // SAFETY: `kill` receives a process group ID derived from a child PID and
+    // does not dereference any pointers.
+    let result = unsafe { libc::kill(process_group, libc::SIGINT) };
+    assert_eq!(
+        result,
+        0,
+        "failed to send SIGINT to process group {process_group}: {}",
+        std::io::Error::last_os_error()
+    );
+}
+
 fn child_stdout(child: &mut Child) -> String {
     let mut output = String::new();
     if let Some(mut stdout) = child.stdout.take() {
@@ -1173,6 +1233,28 @@ fn assert_timestamped_target_down_events(output: &str, protocol: &str) {
         assert_eq!(
             event["ts"], "STAMP",
             "down events should carry clockping timestamps: {output}"
+        );
+    }
+}
+
+fn assert_external_ping_stats_are_raw(output: &str) {
+    let stats_lines = output
+        .lines()
+        .filter(|line| {
+            line.contains("statistics")
+                || line.contains("transmitted")
+                || line.contains("round-trip")
+                || line.contains("rtt min/avg/max")
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        stats_lines.len() >= 2,
+        "expected external ping statistics lines\n{output}"
+    );
+    for line in stats_lines {
+        assert!(
+            !line.starts_with("STAMP "),
+            "external ping statistics must not be timestamped after Ctrl-C\n{output}"
         );
     }
 }

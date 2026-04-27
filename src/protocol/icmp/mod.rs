@@ -18,7 +18,6 @@ use tokio::{
     io::{AsyncBufReadExt, BufReader},
     net::lookup_host,
     process::{Child, Command},
-    time::sleep,
 };
 
 use crate::{cli::parse_seconds, event::ProbeOutcome, output::Output, runner::Prober};
@@ -195,10 +194,14 @@ fn extract_pinger(args: Vec<OsString>) -> anyhow::Result<(Option<PathBuf>, Vec<O
 }
 
 pub async fn run_external(config: ExternalPingConfig, output: Output) -> anyhow::Result<()> {
-    let mut child = Command::new(&config.program)
+    let mut command = Command::new(&config.program);
+    command
         .args(&config.args)
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    configure_external_command(&mut command);
+
+    let mut child = command
         .spawn()
         .with_context(|| format!("failed to spawn {}", config.program.display()))?;
 
@@ -253,25 +256,27 @@ async fn wait_for_external_child(
 }
 
 async fn wait_after_ctrl_c(child: &mut Child) -> anyhow::Result<ExitStatus> {
-    for _ in 0..10 {
-        if let Some(status) = child.try_wait()? {
-            return Ok(status);
-        }
-        sleep(Duration::from_millis(20)).await;
-    }
-
     interrupt_external_child(child)?;
     Ok(child.wait().await?)
 }
+
+#[cfg(unix)]
+fn configure_external_command(command: &mut Command) {
+    command.process_group(0);
+}
+
+#[cfg(not(unix))]
+fn configure_external_command(_command: &mut Command) {}
 
 #[cfg(unix)]
 fn interrupt_external_child(child: &mut Child) -> anyhow::Result<()> {
     let Some(id) = child.id() else {
         return Ok(());
     };
-    // SAFETY: `kill` only receives the child PID returned by Tokio and does not
-    // dereference any pointers.
-    let result = unsafe { libc::kill(id as libc::pid_t, libc::SIGINT) };
+    let process_group = -(id as libc::pid_t);
+    // SAFETY: `kill` only receives the child process group derived from the
+    // Tokio child PID and does not dereference any pointers.
+    let result = unsafe { libc::kill(process_group, libc::SIGINT) };
     if result == 0 {
         return Ok(());
     }
