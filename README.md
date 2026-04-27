@@ -6,10 +6,12 @@ Timestamped generic pinger CLI.
 
 ```sh
 clockping icmp 8.8.8.8
+clockping icmp 8.8.8.8 1.1.1.1
 clockping icmp -c 5 -i 0.2 -W 1 8.8.8.8
 clockping icmp --pinger=/usr/bin/ping -w 1 8.8.8.8
 
 clockping tcp example.com:443
+clockping tcp example.com:443 example.org:443
 clockping http https://example.com/
 clockping http -X GET --ok-status 200,204,300-399 https://example.com/health
 clockping gtp v1u 192.0.2.10
@@ -53,6 +55,9 @@ version.
 `clockping icmp` uses native ICMP by default. It currently accepts the common
 ping-compatible options `-4`, `-6`, `-c`, `-i`, `-W`, `-w`, `-s`, `-t`, `-I`,
 `-n`, `-q`, `-D`, and `-O`.
+Native ICMP, TCP, HTTP, and GTP modes accept multiple targets and probe them
+concurrently. External `--pinger` mode remains a transparent wrapper around one
+external ping-compatible command line.
 
 Use `--pinger` when OS-specific ping behavior or unsupported options are needed:
 
