@@ -41,7 +41,10 @@ pub struct NativeIcmpConfig {
     pub size: usize,
     pub ttl: Option<u32>,
     pub interface_or_source: Option<String>,
+    pub numeric: bool,
     pub quiet: bool,
+    pub timestamp: bool,
+    pub report_outstanding: bool,
 }
 
 #[derive(Debug, Parser)]
@@ -116,7 +119,10 @@ impl From<NativeIcmpArgs> for NativeIcmpConfig {
             size: value.size,
             ttl: value.ttl,
             interface_or_source: value.interface_or_source,
+            numeric: value.numeric,
             quiet: value.quiet,
+            timestamp: value.timestamp,
+            report_outstanding: value.report_outstanding,
         }
     }
 }
@@ -222,6 +228,7 @@ pub struct NativeIcmpProber {
     _client: Client,
     pinger: surge_ping::Pinger,
     payload: Vec<u8>,
+    report_outstanding: bool,
 }
 
 impl NativeIcmpProber {
@@ -252,10 +259,15 @@ impl NativeIcmpProber {
         pinger.timeout(config.timeout);
 
         Ok(Self {
-            target: format!("{} ({host})", config.destination),
+            target: if config.numeric {
+                host.to_string()
+            } else {
+                format!("{} ({host})", config.destination)
+            },
             _client: client,
             pinger,
             payload: vec![0; config.size],
+            report_outstanding: config.report_outstanding,
         })
     }
 }
@@ -308,7 +320,17 @@ impl Prober for NativeIcmpProber {
                 ttl: Some(packet.get_max_hop_limit()),
                 detail: vec![("icmp_seq".to_string(), packet.get_sequence().0.to_string())],
             },
-            Err(surge_ping::SurgeError::Timeout { .. }) => ProbeOutcome::Timeout,
+            Err(surge_ping::SurgeError::Timeout { .. }) => {
+                let detail = if self.report_outstanding {
+                    vec![
+                        ("icmp_seq".to_string(), ping_seq.0.to_string()),
+                        ("outstanding".to_string(), "true".to_string()),
+                    ]
+                } else {
+                    Vec::new()
+                };
+                ProbeOutcome::Timeout { detail }
+            }
             Err(error) => ProbeOutcome::Error(error.to_string()),
         }
     }
@@ -353,6 +375,26 @@ mod tests {
                 assert_eq!(config.count, Some(3));
                 assert_eq!(config.interval, Duration::from_millis(200));
                 assert_eq!(config.destination, "127.0.0.1");
+            }
+            IcmpEngine::External(_) => panic!("expected native engine"),
+        }
+    }
+
+    #[test]
+    fn parse_native_compatibility_flags() {
+        let engine = parse_engine(vec![
+            OsString::from("-n"),
+            OsString::from("-D"),
+            OsString::from("-O"),
+            OsString::from("127.0.0.1"),
+        ])
+        .unwrap();
+
+        match engine {
+            IcmpEngine::Native(config) => {
+                assert!(config.numeric);
+                assert!(config.timestamp);
+                assert!(config.report_outstanding);
             }
             IcmpEngine::External(_) => panic!("expected native engine"),
         }

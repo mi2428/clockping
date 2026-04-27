@@ -37,6 +37,11 @@ clockping icmp --pinger=/usr/bin/ping [PING_ARGS...]
 In wrapper mode, `clockping` prefixes each output line from the external command
 with its own timestamp.
 
+For native ICMP compatibility flags, `-n` uses the resolved numeric address in
+clockping's target label, `-D` keeps clockping timestamps enabled even when the
+global timestamp preset is `none`, and `-O` annotates timeout events as
+outstanding replies.
+
 ## Tests
 
 ```sh

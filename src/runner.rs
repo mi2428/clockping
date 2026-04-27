@@ -82,7 +82,7 @@ impl Summary {
                     }
                 })
             }
-            ProbeOutcome::Timeout | ProbeOutcome::Error(_) => {
+            ProbeOutcome::Timeout { .. } | ProbeOutcome::Error(_) => {
                 if let Some(open) = &mut self.open_loss {
                     open.lost += 1;
                 } else {
@@ -182,8 +182,16 @@ mod tests {
         let t1 = Local.with_ymd_and_hms(2026, 4, 25, 12, 0, 1).unwrap();
         let t2 = Local.with_ymd_and_hms(2026, 4, 25, 12, 0, 2).unwrap();
 
-        assert!(summary.record(t0, &ProbeOutcome::Timeout).is_none());
-        assert!(summary.record(t1, &ProbeOutcome::Timeout).is_none());
+        assert!(
+            summary
+                .record(t0, &ProbeOutcome::Timeout { detail: Vec::new() })
+                .is_none()
+        );
+        assert!(
+            summary
+                .record(t1, &ProbeOutcome::Timeout { detail: Vec::new() })
+                .is_none()
+        );
         let recovery = summary
             .record(
                 t2,

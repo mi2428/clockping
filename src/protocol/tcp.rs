@@ -60,7 +60,7 @@ impl Prober for TcpProber {
                 }
             }
             Ok(Err(error)) => ProbeOutcome::Error(error.to_string()),
-            Err(_) => ProbeOutcome::Timeout,
+            Err(_) => ProbeOutcome::Timeout { detail: Vec::new() },
         }
     }
 }

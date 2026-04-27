@@ -12,7 +12,9 @@ pub enum ProbeOutcome {
         ttl: Option<u8>,
         detail: Vec<(String, String)>,
     },
-    Timeout,
+    Timeout {
+        detail: Vec<(String, String)>,
+    },
     Error(String),
 }
 
@@ -81,7 +83,7 @@ impl ProbeEvent {
                 error: None,
                 recovery: self.recovery.as_ref(),
             },
-            ProbeOutcome::Timeout => JsonProbeEvent {
+            ProbeOutcome::Timeout { detail } => JsonProbeEvent {
                 ts,
                 protocol: self.protocol,
                 target: &self.target,
@@ -91,7 +93,10 @@ impl ProbeEvent {
                 peer: None,
                 bytes: None,
                 ttl: None,
-                detail: Vec::new(),
+                detail: detail
+                    .iter()
+                    .map(|(key, value)| (key.as_str(), value.as_str()))
+                    .collect(),
                 error: None,
                 recovery: self.recovery.as_ref(),
             },

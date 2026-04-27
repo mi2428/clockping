@@ -17,22 +17,26 @@ use crate::{
         tcp::TcpProber,
     },
     runner::{RunnerConfig, run_probe_loop},
-    timefmt::TimestampFormatter,
+    timefmt::{TimestampFormatter, TimestampKind},
 };
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
-    let timestamps = TimestampFormatter::new(cli.timestamp, cli.timestamp_format);
-    let output = Output::new(timestamps, cli.json);
+    let timestamp = cli.timestamp;
+    let timestamp_format = cli.timestamp_format;
+    let json = cli.json;
 
     match cli.command {
         Command::Icmp(command) => match icmp::parse_engine(command.args)? {
             IcmpEngine::External(external) => {
+                let output = make_output(timestamp, timestamp_format.clone(), json, false);
                 icmp::run_external(external, output).await?;
             }
             IcmpEngine::Native(config) => {
                 let quiet = config.quiet;
+                let output =
+                    make_output(timestamp, timestamp_format.clone(), json, config.timestamp);
                 let runner_config = RunnerConfig {
                     interval: config.interval,
                     count: config.count,
@@ -46,6 +50,7 @@ async fn main() -> anyhow::Result<()> {
         },
         Command::Tcp(command) => {
             let quiet = command.quiet;
+            let output = make_output(timestamp, timestamp_format.clone(), json, false);
             let runner_config = RunnerConfig {
                 interval: command.interval,
                 count: command.count,
@@ -57,6 +62,7 @@ async fn main() -> anyhow::Result<()> {
             run_probe_loop(prober, runner_config, output, quiet).await?;
         }
         Command::Gtp(command) => {
+            let output = make_output(timestamp, timestamp_format.clone(), json, false);
             let (variant, args) = match command.command {
                 cli::GtpSubcommand::V1u(args) => (GtpVariant::V1u, args),
                 cli::GtpSubcommand::V1c(args) => (GtpVariant::V1c, args),
@@ -76,4 +82,19 @@ async fn main() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+fn make_output(
+    timestamp: TimestampKind,
+    timestamp_format: Option<String>,
+    json: bool,
+    force_timestamp: bool,
+) -> Output {
+    let timestamp =
+        if force_timestamp && timestamp == TimestampKind::None && timestamp_format.is_none() {
+            TimestampKind::Local
+        } else {
+            timestamp
+        };
+    Output::new(TimestampFormatter::new(timestamp, timestamp_format), json)
 }

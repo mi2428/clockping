@@ -135,7 +135,15 @@ impl Output {
                     )));
                 }
             }
-            ProbeOutcome::Timeout => line.push_str(" timeout"),
+            ProbeOutcome::Timeout { detail } => {
+                line.push_str(" timeout");
+                for (key, value) in detail {
+                    line.push(' ');
+                    line.push_str(key);
+                    line.push('=');
+                    line.push_str(value);
+                }
+            }
             ProbeOutcome::Error(error) => {
                 line.push_str(" error=");
                 line.push_str(error);

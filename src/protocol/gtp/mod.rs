@@ -87,14 +87,14 @@ impl GtpProber {
         loop {
             let now = Instant::now();
             if now >= deadline {
-                return Err(ProbeOutcome::Timeout);
+                return Err(ProbeOutcome::Timeout { detail: Vec::new() });
             }
             let remaining = deadline - now;
             let recv = tokio::time::timeout(remaining, self.socket.recv_from(&mut buf)).await;
             let (len, peer) = match recv {
                 Ok(Ok(value)) => value,
                 Ok(Err(error)) => return Err(ProbeOutcome::Error(error.to_string())),
-                Err(_) => return Err(ProbeOutcome::Timeout),
+                Err(_) => return Err(ProbeOutcome::Timeout { detail: Vec::new() }),
             };
 
             match self.variant.codec().decode_echo_reply(&buf[..len]) {
