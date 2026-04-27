@@ -7,6 +7,13 @@ use std::{
 
 use serde_json::Value;
 
+// This Docker integration test exercises clockping's protocol-facing paths
+// against real containers on one Compose network:
+// - TCP connect and HTTP HEAD use Python's http.server as the endpoint;
+// - native ICMP and external ping verify both ICMP engines inside the network;
+// - GTPv1-U, GTPv1-C, and GTPv2-C use the small Python echo responder.
+// It intentionally remains one Rust test so Compose setup is paid once while
+// each protocol still has an explicit output assertion below.
 const DEFAULT_BIN: &str = env!("CARGO_BIN_EXE_clockping");
 const RETRIES: usize = 50;
 const RETRY_DELAY: Duration = Duration::from_millis(100);

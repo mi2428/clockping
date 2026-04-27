@@ -84,6 +84,9 @@ impl Prober for HttpProber {
 
         match request.send().await {
             Ok(response) => {
+                // `send` completes once response headers are available. Do not
+                // consume the body here; GET remains explicit but still measures
+                // header RTT rather than download throughput.
                 let rtt = started.elapsed();
                 let status = response.status();
                 if !self.is_ok_status(status) {
@@ -213,6 +216,109 @@ mod tests {
             }
             other => panic!("unexpected outcome: {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn http_probe_sends_get_and_custom_header() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut buf = [0_u8; 1024];
+            let len = stream.read(&mut buf).await.unwrap();
+            let request = String::from_utf8_lossy(&buf[..len]);
+            assert!(request.starts_with("GET /health HTTP/1.1"));
+            assert!(request.contains("\r\nx-clockping-test: yes\r\n"));
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
+                .await
+                .unwrap();
+        });
+
+        let mut config = test_config(format!("http://{addr}/health"));
+        config.method = Method::GET;
+        config.headers = vec![("x-clockping-test".to_string(), "yes".to_string())];
+        let mut prober = HttpProber::new(config).unwrap();
+        let outcome = prober.probe(0).await;
+        server.await.unwrap();
+
+        match outcome {
+            ProbeOutcome::Reply { detail, .. } => {
+                assert!(detail.contains(&("method".to_string(), "GET".to_string())));
+                assert!(detail.contains(&("content_length".to_string(), "2".to_string())));
+            }
+            other => panic!("unexpected outcome: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn http_probe_follows_redirect_when_enabled() {
+        let target_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let target_addr = target_listener.local_addr().unwrap();
+        let redirect_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let redirect_addr = redirect_listener.local_addr().unwrap();
+
+        let target_server = tokio::spawn(async move {
+            let (mut stream, _) = target_listener.accept().await.unwrap();
+            let mut buf = [0_u8; 1024];
+            let _ = stream.read(&mut buf).await.unwrap();
+            stream
+                .write_all(
+                    b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                )
+                .await
+                .unwrap();
+        });
+        let redirect_server = tokio::spawn(async move {
+            let (mut stream, _) = redirect_listener.accept().await.unwrap();
+            let mut buf = [0_u8; 1024];
+            let _ = stream.read(&mut buf).await.unwrap();
+            let response = format!(
+                "HTTP/1.1 302 Found\r\nLocation: http://{target_addr}/done\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            );
+            stream.write_all(response.as_bytes()).await.unwrap();
+        });
+
+        let mut config = test_config(format!("http://{redirect_addr}/"));
+        config.follow_redirects = true;
+        let mut prober = HttpProber::new(config).unwrap();
+        let outcome = prober.probe(0).await;
+        redirect_server.await.unwrap();
+        target_server.await.unwrap();
+
+        match outcome {
+            ProbeOutcome::Reply { detail, .. } => {
+                assert!(detail.contains(&("status".to_string(), "204".to_string())));
+                assert!(
+                    detail.iter().any(|(key, value)| key == "url"
+                        && value == &format!("http://{target_addr}/done"))
+                );
+            }
+            other => panic!("unexpected outcome: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn http_probe_accepts_configured_status() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut buf = [0_u8; 1024];
+            let _ = stream.read(&mut buf).await.unwrap();
+            stream
+                .write_all(b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                .await
+                .unwrap();
+        });
+
+        let mut config = test_config(addr.to_string());
+        config.ok_statuses = vec![RangeInclusive::new(503, 503)];
+        let mut prober = HttpProber::new(config).unwrap();
+        let outcome = prober.probe(0).await;
+        server.await.unwrap();
+
+        assert!(matches!(outcome, ProbeOutcome::Reply { .. }));
     }
 
     #[tokio::test]
