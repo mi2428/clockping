@@ -30,6 +30,7 @@ Options:
   -D, --timestamp                         Accepted for ping compatibility. clockping timestamps every event by default
   -O, --report-outstanding                Report outstanding reply before sending next packet
       --pinger <PROGRAM>                  Run an external ping-compatible command instead of native ICMP
+      --colored                           Colorize human-readable output with ANSI escape sequences
   -h, --help                              Print help
 ";
 
@@ -52,6 +53,10 @@ pub struct Cli {
     /// Emit JSON Lines instead of text.
     #[arg(long)]
     pub json: bool,
+
+    /// Colorize human-readable output with ANSI escape sequences.
+    #[arg(long, global = true)]
+    pub colored: bool,
 
     #[command(flatten)]
     pub metrics: MetricsCliOptions,
@@ -412,5 +417,23 @@ mod tests {
             panic!("expected tcp command");
         };
         assert_eq!(command.targets, ["one:443", "two:443"]);
+    }
+
+    #[test]
+    fn colored_is_global() {
+        let cli = Cli::parse_from(["clockping", "tcp", "--colored", "one:443"]);
+
+        assert!(cli.colored);
+    }
+
+    #[test]
+    fn colored_is_global_for_icmp_raw_args() {
+        let cli = Cli::parse_from(["clockping", "icmp", "--colored", "127.0.0.1"]);
+
+        assert!(cli.colored);
+        let Command::Icmp(command) = cli.command else {
+            panic!("expected icmp command");
+        };
+        assert_eq!(command.args, [OsString::from("127.0.0.1")]);
     }
 }

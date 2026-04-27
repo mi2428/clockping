@@ -29,6 +29,7 @@ _clockping() {
 '*--metrics.label=[Add a Prometheus file sample label. Repeat for multiple labels]:KEY=VALUE:_default' \
 '--metrics.prefix=[Prometheus metric name prefix]:PREFIX:_default' \
 '--json[Emit JSON Lines instead of text]' \
+'--colored[Colorize human-readable output with ANSI escape sequences]' \
 '--push.delete-on-exit[Delete this Pushgateway grouping key after the run exits]' \
 '-h[Print help]' \
 '--help[Print help]' \
@@ -56,6 +57,7 @@ _arguments "${_arguments_options[@]}" : \
 '--metrics.format=[Metrics file format\: jsonl or prometheus]:FORMAT:_default' \
 '*--metrics.label=[Add a Prometheus file sample label. Repeat for multiple labels]:KEY=VALUE:_default' \
 '--metrics.prefix=[Prometheus metric name prefix]:PREFIX:_default' \
+'--colored[Colorize human-readable output with ANSI escape sequences]' \
 '--push.delete-on-exit[Delete this Pushgateway grouping key after the run exits]' \
 '-h[Print help]' \
 '--help[Print help]' \
@@ -85,6 +87,7 @@ _arguments "${_arguments_options[@]}" : \
 '--metrics.prefix=[Prometheus metric name prefix]:PREFIX:_default' \
 '-q[Suppress per-probe output and only print the summary]' \
 '--quiet[Suppress per-probe output and only print the summary]' \
+'--colored[Colorize human-readable output with ANSI escape sequences]' \
 '--push.delete-on-exit[Delete this Pushgateway grouping key after the run exits]' \
 '-h[Print help]' \
 '--help[Print help]' \
@@ -123,6 +126,7 @@ _arguments "${_arguments_options[@]}" : \
 '--insecure[Skip TLS certificate verification]' \
 '-q[Suppress per-probe output and only print the summary]' \
 '--quiet[Suppress per-probe output and only print the summary]' \
+'--colored[Colorize human-readable output with ANSI escape sequences]' \
 '--push.delete-on-exit[Delete this Pushgateway grouping key after the run exits]' \
 '-h[Print help]' \
 '--help[Print help]' \
@@ -142,6 +146,7 @@ _arguments "${_arguments_options[@]}" : \
 '--metrics.format=[Metrics file format\: jsonl or prometheus]:FORMAT:_default' \
 '*--metrics.label=[Add a Prometheus file sample label. Repeat for multiple labels]:KEY=VALUE:_default' \
 '--metrics.prefix=[Prometheus metric name prefix]:PREFIX:_default' \
+'--colored[Colorize human-readable output with ANSI escape sequences]' \
 '--push.delete-on-exit[Delete this Pushgateway grouping key after the run exits]' \
 '-h[Print help]' \
 '--help[Print help]' \
@@ -179,6 +184,7 @@ _arguments "${_arguments_options[@]}" : \
 '--metrics.prefix=[Prometheus metric name prefix]:PREFIX:_default' \
 '-q[Suppress per-probe output and only print the summary]' \
 '--quiet[Suppress per-probe output and only print the summary]' \
+'--colored[Colorize human-readable output with ANSI escape sequences]' \
 '--push.delete-on-exit[Delete this Pushgateway grouping key after the run exits]' \
 '-h[Print help]' \
 '--help[Print help]' \
@@ -209,6 +215,7 @@ _arguments "${_arguments_options[@]}" : \
 '--metrics.prefix=[Prometheus metric name prefix]:PREFIX:_default' \
 '-q[Suppress per-probe output and only print the summary]' \
 '--quiet[Suppress per-probe output and only print the summary]' \
+'--colored[Colorize human-readable output with ANSI escape sequences]' \
 '--push.delete-on-exit[Delete this Pushgateway grouping key after the run exits]' \
 '-h[Print help]' \
 '--help[Print help]' \
@@ -239,6 +246,7 @@ _arguments "${_arguments_options[@]}" : \
 '--metrics.prefix=[Prometheus metric name prefix]:PREFIX:_default' \
 '-q[Suppress per-probe output and only print the summary]' \
 '--quiet[Suppress per-probe output and only print the summary]' \
+'--colored[Colorize human-readable output with ANSI escape sequences]' \
 '--push.delete-on-exit[Delete this Pushgateway grouping key after the run exits]' \
 '-h[Print help]' \
 '--help[Print help]' \
@@ -294,6 +302,7 @@ _arguments "${_arguments_options[@]}" : \
 '--metrics.format=[Metrics file format\: jsonl or prometheus]:FORMAT:_default' \
 '*--metrics.label=[Add a Prometheus file sample label. Repeat for multiple labels]:KEY=VALUE:_default' \
 '--metrics.prefix=[Prometheus metric name prefix]:PREFIX:_default' \
+'--colored[Colorize human-readable output with ANSI escape sequences]' \
 '--push.delete-on-exit[Delete this Pushgateway grouping key after the run exits]' \
 '-h[Print help]' \
 '--help[Print help]' \

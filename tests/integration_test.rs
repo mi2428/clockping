@@ -281,6 +281,27 @@ fn tcp_probes_multiple_targets() {
 }
 
 #[test]
+fn colored_output_uses_ansi_escape_sequences() {
+    let target = spawn_tcp_acceptor(1);
+
+    let output = run_clockping(&[
+        "--colored",
+        "--timestamp",
+        "none",
+        "tcp",
+        "-c",
+        "1",
+        "-W",
+        "1",
+        &target,
+    ]);
+
+    assert_contains(&output, "\x1b[34m");
+    assert_contains(&output, "\x1b[32mreply\x1b[0m");
+    assert_contains(&output, "\x1b[32m0.0% loss\x1b[0m");
+}
+
+#[test]
 fn prometheus_metrics_file_includes_multiple_targets() {
     let first = spawn_tcp_acceptor(1);
     let second = spawn_tcp_acceptor(1);

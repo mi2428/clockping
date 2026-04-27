@@ -24,7 +24,11 @@ Custom timestamps use a strftime-like format:
 ```sh
 clockping --timestamp-format "%Y-%m-%d %H:%M:%S%.3f %z" icmp 8.8.8.8
 clockping --timestamp rfc3339 --json tcp example.com:443
+clockping --colored --timestamp none icmp 1.1.1.1
 ```
+
+Use `--colored` to add ANSI colors to human-readable output. JSON Lines output
+stays uncolored.
 
 ## Shell completion
 

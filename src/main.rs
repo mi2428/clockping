@@ -56,6 +56,7 @@ async fn run() -> anyhow::Result<ExitCode> {
     let timestamp = cli.timestamp;
     let timestamp_format = cli.timestamp_format;
     let json = cli.json;
+    let colored = cli.colored;
     let mut exit_code = ExitCode::SUCCESS;
 
     match cli.command {
@@ -72,7 +73,7 @@ async fn run() -> anyhow::Result<ExitCode> {
                         "--push and --metrics are not supported with external --pinger mode"
                     );
                 }
-                let output = make_output(timestamp, timestamp_format.clone(), json, false);
+                let output = make_output(timestamp, timestamp_format.clone(), json, colored, false);
                 icmp::run_external(external, output).await?;
             }
             IcmpEngine::Native(config) => {
@@ -82,8 +83,13 @@ async fn run() -> anyhow::Result<ExitCode> {
                     .into_reporter()?
                     .map(|reporter| reporter.shared());
                 let quiet = config.quiet;
-                let output =
-                    make_output(timestamp, timestamp_format.clone(), json, config.timestamp);
+                let output = make_output(
+                    timestamp,
+                    timestamp_format.clone(),
+                    json,
+                    colored,
+                    config.timestamp,
+                );
                 let runner_config = RunnerConfig {
                     interval: config.interval,
                     count: config.count,
@@ -112,7 +118,7 @@ async fn run() -> anyhow::Result<ExitCode> {
                 .into_reporter()?
                 .map(|reporter| reporter.shared());
             let quiet = command.quiet;
-            let output = make_output(timestamp, timestamp_format.clone(), json, false);
+            let output = make_output(timestamp, timestamp_format.clone(), json, colored, false);
             let runner_config = RunnerConfig {
                 interval: command.interval,
                 count: command.count,
@@ -138,7 +144,7 @@ async fn run() -> anyhow::Result<ExitCode> {
                 .into_reporter()?
                 .map(|reporter| reporter.shared());
             let quiet = command.quiet;
-            let output = make_output(timestamp, timestamp_format.clone(), json, false);
+            let output = make_output(timestamp, timestamp_format.clone(), json, colored, false);
             let runner_config = RunnerConfig {
                 interval: command.interval,
                 count: command.count,
@@ -180,7 +186,7 @@ async fn run() -> anyhow::Result<ExitCode> {
                 .expect("metrics options should be consumed once")
                 .into_reporter()?
                 .map(|reporter| reporter.shared());
-            let output = make_output(timestamp, timestamp_format.clone(), json, false);
+            let output = make_output(timestamp, timestamp_format.clone(), json, colored, false);
             let (variant, args) = match command.command {
                 cli::GtpSubcommand::V1u(args) => (GtpVariant::V1u, args),
                 cli::GtpSubcommand::V1c(args) => (GtpVariant::V1c, args),
@@ -248,6 +254,7 @@ fn make_output(
     timestamp: TimestampKind,
     timestamp_format: Option<String>,
     json: bool,
+    colored: bool,
     force_timestamp: bool,
 ) -> Output {
     let timestamp =
@@ -256,7 +263,11 @@ fn make_output(
         } else {
             timestamp
         };
-    Output::new(TimestampFormatter::new(timestamp, timestamp_format), json)
+    Output::new(
+        TimestampFormatter::new(timestamp, timestamp_format),
+        json,
+        colored,
+    )
 }
 
 fn exit_code_for_summary(summary: &Summary) -> ExitCode {
