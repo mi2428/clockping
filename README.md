@@ -59,9 +59,8 @@ scratch release image does not need an OS CA bundle.
 ## Tests
 
 ```sh
-cargo test
-cargo clippy --all-targets -- -D warnings
-docker compose -f docker-compose.test.yml up --build --abort-on-container-exit --exit-code-from sut
+make check
+make integration
 ```
 
 The Docker Compose e2e test starts TCP and GTP targets on a private Docker

@@ -1,34 +1,34 @@
-SHELL := bash
-.SHELLFLAGS := -eu -o pipefail -c
+SHELL         := /bin/bash
+.SHELLFLAGS   := -eu -o pipefail -c
+.DEFAULT_GOAL := help
 
-RUSTUP       ?= rustup
-RUSTUP_TOOLCHAIN ?= stable
-CARGO        := $(shell if command -v $(RUSTUP) >/dev/null 2>&1 && $(RUSTUP) which --toolchain $(RUSTUP_TOOLCHAIN) cargo >/dev/null 2>&1; then $(RUSTUP) which --toolchain $(RUSTUP_TOOLCHAIN) cargo; else command -v cargo; fi)
-RUSTC        := $(shell if command -v $(RUSTUP) >/dev/null 2>&1 && $(RUSTUP) which --toolchain $(RUSTUP_TOOLCHAIN) rustc >/dev/null 2>&1; then $(RUSTUP) which --toolchain $(RUSTUP_TOOLCHAIN) rustc; else command -v rustc; fi)
-RUSTDOC      := $(shell if command -v $(RUSTUP) >/dev/null 2>&1 && $(RUSTUP) which --toolchain $(RUSTUP_TOOLCHAIN) rustdoc >/dev/null 2>&1; then $(RUSTUP) which --toolchain $(RUSTUP_TOOLCHAIN) rustdoc; else command -v rustdoc; fi)
-CARGO_ENV    := RUSTC="$(RUSTC)" RUSTDOC="$(RUSTDOC)"
+RUSTUP           ?= rustup
+RUSTUP_TOOLCHAIN ?= 1.95.0
+CARGO            ?= $(shell if command -v $(RUSTUP) >/dev/null 2>&1 && $(RUSTUP) which cargo --toolchain $(RUSTUP_TOOLCHAIN) >/dev/null 2>&1; then $(RUSTUP) which cargo --toolchain $(RUSTUP_TOOLCHAIN); else command -v cargo; fi)
+RUSTC            ?= $(shell if command -v $(RUSTUP) >/dev/null 2>&1 && $(RUSTUP) which rustc --toolchain $(RUSTUP_TOOLCHAIN) >/dev/null 2>&1; then $(RUSTUP) which rustc --toolchain $(RUSTUP_TOOLCHAIN); else command -v rustc; fi)
+RUSTDOC          ?= $(shell if command -v $(RUSTUP) >/dev/null 2>&1 && $(RUSTUP) which rustdoc --toolchain $(RUSTUP_TOOLCHAIN) >/dev/null 2>&1; then $(RUSTUP) which rustdoc --toolchain $(RUSTUP_TOOLCHAIN); else command -v rustdoc; fi)
+RUST_BINDIR      := $(patsubst %/,%,$(dir $(CARGO)))
+CARGO_ENV        := PATH="$(RUST_BINDIR):$(PATH)" RUSTC="$(RUSTC)" RUSTDOC="$(RUSTDOC)"
+
+INSTALL ?= install
+DOCKER  ?= docker
+COMPOSE ?= $(shell if $(DOCKER) compose version >/dev/null 2>&1; then printf '%s compose' '$(DOCKER)'; elif command -v docker-compose >/dev/null 2>&1; then command -v docker-compose; else printf '%s compose' '$(DOCKER)'; fi)
+MULTIPASS ?= multipass
+GIT_REMOTE ?= origin
 
 APP          := clockping
-GH           ?= gh
-GIT          ?= git
-REMOTE       ?= origin
-MAIN_BRANCH  ?= main
-DOCKER       ?= docker
-COMPOSE      ?= docker compose
-LINUX_BUILD_IMAGE ?= rust:1-bookworm
-DOCKER_UID   ?= $(shell id -u)
-DOCKER_GID   ?= $(shell id -g)
-
 BINDIR       := bin
 DISTDIR      := dist
-LINUX_CARGO_HOME_DIR := target/cargo-linux
-LINUX_HOME_DIR := target/home-linux
-OS           ?= darwin,linux
-ARCH         ?= amd64,arm64
-DARWIN_ARCHS ?= amd64 arm64
-LINUX_ARCHS  ?= amd64 arm64
+TEST_COMPOSE := docker-compose.test.yml
+
+INSTALL_PREFIX ?= $(HOME)/.local
+INSTALL_BINDIR ?= $(INSTALL_PREFIX)/bin
+OS             ?= darwin,linux
+ARCH           ?= amd64,arm64
+
+DARWIN_ARCHS := amd64 arm64
+LINUX_ARCHS  := amd64 arm64
 RUST_TARGETS := x86_64-apple-darwin aarch64-apple-darwin
-MAIN_REMOTE_REF := refs/remotes/$(REMOTE)/$(MAIN_BRANCH)
 
 DARWIN_amd64_TARGET := x86_64-apple-darwin
 DARWIN_amd64_SUFFIX := darwin-amd64
@@ -36,104 +36,131 @@ DARWIN_arm64_TARGET := aarch64-apple-darwin
 DARWIN_arm64_SUFFIX := darwin-arm64
 
 LINUX_amd64_PLATFORM := linux/amd64
-LINUX_amd64_SUFFIX := linux-amd64
+LINUX_amd64_SUFFIX   := linux-amd64
 LINUX_arm64_PLATFORM := linux/arm64
-LINUX_arm64_SUFFIX := linux-arm64
+LINUX_arm64_SUFFIX   := linux-arm64
+LINUX_BUILD_IMAGE    ?= rust:1.95-bookworm
+LINUX_SMOKE_IMAGE    ?= debian:bookworm-slim
+LINUX_CACHE_KEY      := $(shell printf '%s' '$(LINUX_BUILD_IMAGE)' | sed 's/[^A-Za-z0-9_.-]/-/g')
+DOCKER_UID           ?= $(shell id -u)
+DOCKER_GID           ?= $(shell id -g)
+HOST_OS              := $(shell uname -s)
 
-all: help
+MULTIPASS_NAME       ?= clockping-dev
+MULTIPASS_IMAGE      ?= 24.04
+MULTIPASS_CPUS       ?= 2
+MULTIPASS_MEMORY     ?= 4G
+MULTIPASS_DISK       ?= 20G
+MULTIPASS_SOURCE_DIR ?= clockping
 
 ##@ Development
 
 .PHONY: build
-build: ## Build the host release binary into bin/
-	@echo "Building $(APP) for the host platform"
+build: ## Build the host binary into bin/
 	@mkdir -p $(BINDIR)
 	@$(CARGO_ENV) $(CARGO) build --release
 	@cp target/release/$(APP) $(BINDIR)/$(APP)
 	@chmod +x $(BINDIR)/$(APP)
-	@echo "Wrote $(BINDIR)/$(APP)"
+	@printf 'Wrote %s/%s\n' "$(BINDIR)" "$(APP)"
+
+.PHONY: install
+install: ## Build and install the host binary into INSTALL_BINDIR
+	@$(CARGO_ENV) $(CARGO) build --release
+	@mkdir -p "$(INSTALL_BINDIR)"
+	@$(INSTALL) -m 0755 "target/release/$(APP)" "$(INSTALL_BINDIR)/$(APP)"
+	@printf 'Installed %s\n' "$(INSTALL_BINDIR)/$(APP)"
 
 .PHONY: fmt
-fmt: ## Format the Rust sources
-	@$(CARGO_ENV) $(CARGO) fmt --all
-
-.PHONY: fmt-check
-fmt-check: ## Verify formatting without changing files
-	@$(CARGO_ENV) $(CARGO) fmt --all --check
+fmt: ## Format Rust sources. Use CHECK_ONLY=1 to check without writing
+	@if [ "$(CHECK_ONLY)" = "1" ]; then \
+		$(CARGO_ENV) $(CARGO) fmt --all --check; \
+	else \
+		$(CARGO_ENV) $(CARGO) fmt --all; \
+	fi
 
 .PHONY: lint
 lint: ## Run clippy with warnings treated as errors
 	@$(CARGO_ENV) $(CARGO) clippy --all-targets --all-features -- -D warnings
 
+.PHONY: doc
+doc: ## Build rustdoc with warnings treated as errors
+	@RUSTDOCFLAGS="-D warnings" $(CARGO_ENV) $(CARGO) doc --no-deps
+
 .PHONY: test
-test: ## Run the unit test suite
+test: ## Run unit tests
 	@$(CARGO_ENV) $(CARGO) test
 
-.PHONY: test-e2e
-test-e2e: ## Run Docker Compose end-to-end tests
-	@trap '$(COMPOSE) -f docker-compose.test.yml down --remove-orphans >/dev/null 2>&1 || true' EXIT; \
-	$(COMPOSE) -f docker-compose.test.yml up --build --abort-on-container-exit --exit-code-from sut
+.PHONY: integration
+integration: ## Run Docker Compose integration tests
+	@trap '$(COMPOSE) -f $(TEST_COMPOSE) down --remove-orphans >/dev/null 2>&1 || true' EXIT; \
+	$(COMPOSE) -f $(TEST_COMPOSE) up --build --abort-on-container-exit --exit-code-from sut
 
 .PHONY: check
-check: fmt-check lint test ## Run formatting, lint, and unit tests
+check: ## Run formatting, lint, rustdoc, and tests
+	@$(MAKE) --no-print-directory fmt CHECK_ONLY=1
+	@$(MAKE) --no-print-directory lint
+	@$(MAKE) --no-print-directory doc
+	@$(MAKE) --no-print-directory test
 
-.PHONY: ci
-ci: check test-e2e ## Run the full local CI suite, including Docker e2e tests
-
-.PHONY: _docker-check
-_docker-check:
-	@command -v $(DOCKER) >/dev/null 2>&1 || { \
-		echo "Docker is required for Linux cross-builds" >&2; \
+.PHONY: multipass
+multipass: ## Launch a Multipass VM and copy the source tree for manual Linux testing
+	@command -v $(MULTIPASS) >/dev/null 2>&1 || { \
+		echo "Multipass is required for this target" >&2; \
 		exit 1; \
 	}
-	@$(DOCKER) info >/dev/null 2>&1 || { \
-		echo "A running Docker daemon is required for Linux cross-builds" >&2; \
-		exit 1; \
-	}
+	@if $(MULTIPASS) info "$(MULTIPASS_NAME)" >/dev/null 2>&1; then \
+		printf 'Starting existing Multipass VM %s\n' "$(MULTIPASS_NAME)"; \
+		$(MULTIPASS) start "$(MULTIPASS_NAME)" >/dev/null; \
+	else \
+		printf 'Launching Multipass VM %s from %s\n' "$(MULTIPASS_NAME)" "$(MULTIPASS_IMAGE)"; \
+		$(MULTIPASS) launch "$(MULTIPASS_IMAGE)" \
+			--name "$(MULTIPASS_NAME)" \
+			--cpus "$(MULTIPASS_CPUS)" \
+			--memory "$(MULTIPASS_MEMORY)" \
+			--disk "$(MULTIPASS_DISK)"; \
+	fi
+	@archive="$$(mktemp "$${TMPDIR:-/tmp}/$(APP)-multipass.XXXXXX.tar.gz")"; \
+	trap 'rm -f "$$archive"' EXIT; \
+	printf 'Packing source tree for %s\n' "$(MULTIPASS_NAME)"; \
+	tar_metadata_flags=(); \
+	for flag in --no-xattrs --no-mac-metadata --disable-copyfile; do \
+		if tar "$$flag" -cf /dev/null --files-from /dev/null >/dev/null 2>&1; then \
+			tar_metadata_flags+=("$$flag"); \
+		fi; \
+	done; \
+	COPYFILE_DISABLE=1 tar "$${tar_metadata_flags[@]}" \
+		--exclude './target' \
+		--exclude './dist' \
+		--exclude './bin' \
+		--exclude './.cargo-linux' \
+		--exclude './.home-linux' \
+		--exclude './.DS_Store' \
+		-czf "$$archive" .; \
+	$(MULTIPASS) exec "$(MULTIPASS_NAME)" -- rm -rf "/home/ubuntu/$(MULTIPASS_SOURCE_DIR)"; \
+	$(MULTIPASS) exec "$(MULTIPASS_NAME)" -- mkdir -p "/home/ubuntu/$(MULTIPASS_SOURCE_DIR)"; \
+	$(MULTIPASS) transfer "$$archive" "$(MULTIPASS_NAME):/tmp/$(APP)-source.tar.gz"; \
+	$(MULTIPASS) exec "$(MULTIPASS_NAME)" -- tar -xzf "/tmp/$(APP)-source.tar.gz" -C "/home/ubuntu/$(MULTIPASS_SOURCE_DIR)"; \
+	$(MULTIPASS) exec "$(MULTIPASS_NAME)" -- chown -R ubuntu:ubuntu "/home/ubuntu/$(MULTIPASS_SOURCE_DIR)"; \
+	printf '\nMultipass VM is ready.\n'; \
+	printf '\nRun these commands to build inside the VM:\n'; \
+	printf '  1) %s\n' "$(MULTIPASS) shell $(MULTIPASS_NAME)"; \
+	printf '  2) %s\n' "cd ~/$(MULTIPASS_SOURCE_DIR)"; \
+	printf '  3) %s\n' "sudo apt-get update && sudo apt-get install -y --no-install-recommends build-essential ca-certificates curl make pkg-config"; \
+	printf '  4) %s\n' "command -v cargo >/dev/null || curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y"; \
+	printf '  5) %s\n' "source \"\$$HOME/.cargo/env\""; \
+	printf '  6) %s\n' "make build"; \
+	printf '  7) %s\n' "./bin/clockping --version"
 
-define TARGET_RULE
-.PHONY: _target.$(1)
-_target.$(1):
-	@command -v $(RUSTUP) >/dev/null 2>&1 || { \
-		echo "rustup is required to install cross-compilation targets" >&2; \
-		exit 1; \
-	}
-	@$(RUSTUP) target add --toolchain $(RUSTUP_TOOLCHAIN) $(1)
-endef
-$(foreach target,$(RUST_TARGETS),$(eval $(call TARGET_RULE,$(target))))
-
-define DARWIN_DIST_RULE
-.PHONY: _dist.darwin.$(1)
-_dist.darwin.$(1): _target.$$(DARWIN_$(1)_TARGET)
-	@echo "Building $(APP) for $$(DARWIN_$(1)_TARGET)"
-	@mkdir -p $(DISTDIR)
-	@$(CARGO_ENV) $(CARGO) build --release --target $$(DARWIN_$(1)_TARGET)
-	@cp target/$$(DARWIN_$(1)_TARGET)/release/$(APP) $(DISTDIR)/$(APP)-$$(DARWIN_$(1)_SUFFIX)
-	@chmod +x $(DISTDIR)/$(APP)-$$(DARWIN_$(1)_SUFFIX)
-	@echo "Wrote $(DISTDIR)/$(APP)-$$(DARWIN_$(1)_SUFFIX)"
-endef
-$(foreach arch,$(DARWIN_ARCHS),$(eval $(call DARWIN_DIST_RULE,$(arch))))
-
-define LINUX_DIST_RULE
-.PHONY: _dist.linux.$(1)
-_dist.linux.$(1): _docker-check
-	@echo "Building $(APP) for $$(LINUX_$(1)_PLATFORM) via Docker"
-	@mkdir -p $(DISTDIR) $(LINUX_CARGO_HOME_DIR)/$(1) $(LINUX_HOME_DIR)/$(1)
-	@$(DOCKER) run --rm \
-		--platform $$(LINUX_$(1)_PLATFORM) \
-		-u "$(DOCKER_UID):$(DOCKER_GID)" \
-		-e HOME=/workspace/$(LINUX_HOME_DIR)/$(1) \
-		-e CARGO_HOME=/workspace/$(LINUX_CARGO_HOME_DIR)/$(1) \
-		-e CARGO_TARGET_DIR=/workspace/target/linux-$(1) \
-		-v "$(CURDIR):/workspace" \
-		-w /workspace \
-		$(LINUX_BUILD_IMAGE) \
-		bash -c 'export PATH="/usr/local/cargo/bin:$$$$PATH"; cargo build --locked --release && cp target/linux-$(1)/release/$(APP) dist/$(APP)-$$(LINUX_$(1)_SUFFIX) && chmod +x dist/$(APP)-$$(LINUX_$(1)_SUFFIX)'
-	@echo "Wrote $(DISTDIR)/$(APP)-$$(LINUX_$(1)_SUFFIX)"
-endef
-$(foreach arch,$(LINUX_ARCHS),$(eval $(call LINUX_DIST_RULE,$(arch))))
+.PHONY: clean
+clean: ## Remove local build artifacts
+	@rm -rf $(BINDIR) $(DISTDIR) .cargo-linux .home-linux
+	@$(CARGO_ENV) $(CARGO) clean
 
 ##@ Distribution
+
+.PHONY: release
+release: ## Tag and push a GitHub release tag. Requires TAG=vX.Y.Z
+	@TAG="$(TAG)" GIT_REMOTE="$(GIT_REMOTE)" CARGO="$(CARGO)" RUSTC="$(RUSTC)" RUSTDOC="$(RUSTDOC)" PATH="$(RUST_BINDIR):$(PATH)" bash scripts/release.sh
 
 .PHONY: dist
 dist: ## Build release binaries into dist/. Use OS=darwin,linux and ARCH=amd64,arm64
@@ -165,99 +192,143 @@ dist: ## Build release binaries into dist/. Use OS=darwin,linux and ARCH=amd64,a
 		for arch in $$(printf '%s' "$$arch_list" | tr ',' ' '); do \
 			$(MAKE) _dist.$$os.$$arch || exit $$?; \
 		done; \
+	done; \
+	$(MAKE) dist-smoke; \
+	$(MAKE) checksums
+
+.PHONY: dist-smoke
+dist-smoke: ## Smoke-test Linux dist binaries in a Debian container
+	@if ! ls "$(DISTDIR)"/$(APP)-linux-* >/dev/null 2>&1; then \
+		printf 'Skipping Linux dist smoke test; no Linux artifacts found\n'; \
+		exit 0; \
+	fi
+	@$(MAKE) --no-print-directory _docker-check
+	@for arch in $(LINUX_ARCHS); do \
+		case "$$arch" in \
+			amd64) binary="$(DISTDIR)/$(APP)-$(LINUX_amd64_SUFFIX)"; platform="$(LINUX_amd64_PLATFORM)" ;; \
+			arm64) binary="$(DISTDIR)/$(APP)-$(LINUX_arm64_SUFFIX)"; platform="$(LINUX_arm64_PLATFORM)" ;; \
+			*) echo "Unsupported Linux ARCH '$$arch'" >&2; exit 1 ;; \
+		esac; \
+		if [ ! -f "$$binary" ]; then \
+			continue; \
+		fi; \
+		printf 'Smoke-testing %s on %s in %s\n' "$$binary" "$$platform" "$(LINUX_SMOKE_IMAGE)"; \
+		$(DOCKER) run --rm \
+			--platform "$$platform" \
+			-v "$(CURDIR):/workspace:ro" \
+			-w /workspace \
+			$(LINUX_SMOKE_IMAGE) \
+			"/workspace/$$binary" --help >/dev/null; \
+		$(DOCKER) run --rm \
+			--platform "$$platform" \
+			-v "$(CURDIR):/workspace:ro" \
+			-w /workspace \
+			$(LINUX_SMOKE_IMAGE) \
+			"/workspace/$$binary" --version >/dev/null; \
 	done
-	@cd $(DISTDIR) && if command -v shasum >/dev/null 2>&1; then \
-		shasum -a 256 $(APP)-* > SHA256SUMS; \
-	elif command -v sha256sum >/dev/null 2>&1; then \
-		sha256sum $(APP)-* > SHA256SUMS; \
-	else \
-		echo "shasum or sha256sum is required to write SHA256SUMS" >&2; \
+
+.PHONY: checksums
+checksums: ## Write SHA-256 checksums for dist artifacts
+	@if [ ! -d "$(DISTDIR)" ] || ! ls "$(DISTDIR)"/$(APP)-* >/dev/null 2>&1; then \
+		echo "No dist artifacts found" >&2; \
 		exit 1; \
 	fi
-	@echo "Wrote $(DISTDIR)/SHA256SUMS"
+	@cd "$(DISTDIR)" && shasum -a 256 $(APP)-* > checksums.txt
+	@printf 'Wrote %s/checksums.txt\n' "$(DISTDIR)"
 
-.PHONY: clean
-clean: ## Remove build artifacts
-	@echo "Cleaning build artifacts"
-	@rm -rf $(BINDIR) $(DISTDIR) .cargo-linux .home-linux $(LINUX_CARGO_HOME_DIR) $(LINUX_HOME_DIR)
-	@$(CARGO) clean
-
-##@ Release
-
-.PHONY: _publish-release
-_publish-release:
-	@command -v $(GH) >/dev/null 2>&1 || { \
-		echo "gh is required to publish a release" >&2; \
+.PHONY: _docker-check
+_docker-check:
+	@command -v $(DOCKER) >/dev/null 2>&1 || { \
+		echo "Docker is required for Linux release builds" >&2; \
 		exit 1; \
 	}
-	@if [ -z "$(TAG)" ]; then \
-		echo "TAG is required for the release upload step" >&2; \
-		exit 1; \
-	fi
-	@if [ -z "$(TARGET_SHA)" ]; then \
-		echo "TARGET_SHA is required for the release upload step" >&2; \
-		exit 1; \
-	fi
-	@if $(GH) release view "$(TAG)" >/dev/null 2>&1; then \
-		echo "Release $(TAG) already exists" >&2; \
-		exit 1; \
-	fi
-	@if $(GIT) ls-remote --exit-code --tags "$(REMOTE)" "refs/tags/$(TAG)" >/dev/null 2>&1; then \
-		echo "Tag $(TAG) already exists on $(REMOTE)" >&2; \
-		exit 1; \
-	fi
-	@if ! ls $(DISTDIR)/$(APP)-* >/dev/null 2>&1; then \
-		echo "No release assets found in $(DISTDIR). Run make dist first." >&2; \
-		exit 1; \
-	fi
-	@echo "Creating release $(TAG) at $(TARGET_SHA)"
-	@$(GH) release create "$(TAG)" $(DISTDIR)/$(APP)-* $(DISTDIR)/SHA256SUMS \
-		--target "$(TARGET_SHA)" \
-		--title "$(TAG)" \
-		--notes "Release $(TAG) built from $(TARGET_SHA)"
-
-.PHONY: release
-release: ## Build cross-compiled binaries for origin/main and publish a GitHub Release
-	@command -v $(GIT) >/dev/null 2>&1 || { \
-		echo "git is required to create a release" >&2; \
+	@$(DOCKER) info >/dev/null 2>&1 || { \
+		echo "A running Docker daemon is required for Linux release builds" >&2; \
 		exit 1; \
 	}
-	@make_bin="$$(command -v make)"; \
-	tmpdir="$$(mktemp -d)"; \
-	main_ref="$(MAIN_REMOTE_REF)"; \
-	trap 'status=$$?; $(GIT) worktree remove --force "$$tmpdir" >/dev/null 2>&1 || true; rm -rf "$$tmpdir"; exit $$status' EXIT; \
-	echo "Fetching $(REMOTE)/$(MAIN_BRANCH)"; \
-	$(GIT) fetch $(REMOTE) $(MAIN_BRANCH); \
-	main_sha="$$($(GIT) rev-parse "$$main_ref")"; \
-	echo "Preparing worktree for $$main_sha"; \
-	$(GIT) worktree add --force --detach "$$tmpdir" "$$main_sha" >/dev/null; \
-	release_version="$$(awk 'BEGIN { in_pkg = 0 } /^\[package\]$$/ { in_pkg = 1; next } /^\[/ { in_pkg = 0 } in_pkg && $$1 == "version" { gsub(/"/, "", $$3); print $$3; exit }' "$$tmpdir/Cargo.toml")"; \
-	if [ -z "$$release_version" ]; then \
-		echo "failed to read package.version from $$tmpdir/Cargo.toml" >&2; \
+
+define TARGET_RULE
+.PHONY: _target.$(1)
+_target.$(1):
+	@command -v $(RUSTUP) >/dev/null 2>&1 || { \
+		echo "rustup is required to install cross-compilation targets" >&2; \
 		exit 1; \
-	fi; \
-	tag="v$$release_version"; \
-	echo "Building release assets for $$tag"; \
-	"$$make_bin" -f "$(CURDIR)/Makefile" -C "$$tmpdir" dist OS=darwin,linux ARCH=amd64,arm64; \
-	echo "Publishing $$tag"; \
-	"$$make_bin" -f "$(CURDIR)/Makefile" -C "$$tmpdir" _publish-release TAG="$$tag" TARGET_SHA="$$main_sha"
+	}
+	@$(RUSTUP) target add --toolchain $(RUSTUP_TOOLCHAIN) $(1)
+endef
+$(foreach target,$(RUST_TARGETS),$(eval $(call TARGET_RULE,$(target))))
+
+define DARWIN_DIST_RULE
+.PHONY: _dist.darwin.$(1)
+_dist.darwin.$(1): _target.$$(DARWIN_$(1)_TARGET)
+	@if [ "$(HOST_OS)" != "Darwin" ]; then \
+		echo "Darwin release builds must run on macOS" >&2; \
+		exit 1; \
+	fi
+	@printf 'Building %s for %s\n' "$(APP)" "$$(DARWIN_$(1)_TARGET)"
+	@mkdir -p $(DISTDIR)
+	@$(CARGO_ENV) $(CARGO) build --release --target $$(DARWIN_$(1)_TARGET)
+	@cp target/$$(DARWIN_$(1)_TARGET)/release/$(APP) $(DISTDIR)/$(APP)-$$(DARWIN_$(1)_SUFFIX)
+	@chmod +x $(DISTDIR)/$(APP)-$$(DARWIN_$(1)_SUFFIX)
+	@printf 'Wrote %s/%s-%s\n' "$(DISTDIR)" "$(APP)" "$$(DARWIN_$(1)_SUFFIX)"
+endef
+$(foreach arch,$(DARWIN_ARCHS),$(eval $(call DARWIN_DIST_RULE,$(arch))))
+
+define LINUX_DIST_RULE
+.PHONY: _dist.linux.$(1)
+_dist.linux.$(1): _docker-check
+	@printf 'Building %s for %s via Docker\n' "$(APP)" "$$(LINUX_$(1)_PLATFORM)"
+	@mkdir -p $(DISTDIR) .cargo-linux/$(1) .home-linux/$(LINUX_CACHE_KEY)/$(1)
+	@$(DOCKER) run --rm \
+		--platform $$(LINUX_$(1)_PLATFORM) \
+		-e HOME=/workspace/.home-linux/$(LINUX_CACHE_KEY)/$(1) \
+		-e CARGO_HOME=/workspace/.cargo-linux/$(1) \
+		-e CARGO_TARGET_DIR=/workspace/target/linux-$(1)-$(LINUX_CACHE_KEY) \
+		-v "$(CURDIR):/workspace" \
+		-w /workspace \
+		$(LINUX_BUILD_IMAGE) \
+		bash -eu -o pipefail -c ' \
+			cargo build --locked --release; \
+			cp target/linux-$(1)-$(LINUX_CACHE_KEY)/release/$(APP) dist/$(APP)-$$(LINUX_$(1)_SUFFIX); \
+			chmod +x dist/$(APP)-$$(LINUX_$(1)_SUFFIX); \
+			chown -R $(DOCKER_UID):$(DOCKER_GID) dist target/linux-$(1)-$(LINUX_CACHE_KEY) .cargo-linux/$(1) .home-linux/$(LINUX_CACHE_KEY)/$(1)'
+	@printf 'Wrote %s/%s-%s\n' "$(DISTDIR)" "$(APP)" "$$(LINUX_$(1)_SUFFIX)"
+endef
+$(foreach arch,$(LINUX_ARCHS),$(eval $(call LINUX_DIST_RULE,$(arch))))
 
 ##@ Help
 
 .PHONY: help
 help: ## Show this help message
-	@awk 'BEGIN {FS = ":.*##"; section = ""} \
-	/^[a-zA-Z0-9_.-]+:.*##/ { \
-		if (section != "") printf "\n\033[1m%s\033[0m\n", section; \
-		section = ""; \
-		printf "  \033[36m%-11s\033[0m %s\n", $$1, $$2; next \
-	} \
-	/^##@/ { section = substr($$0, 5); next }' $(MAKEFILE_LIST)
+	@awk 'BEGIN {FS = ":.*##"; width = 0} \
+		{ lines[NR] = $$0 } \
+		/^[a-zA-Z0-9_.-]+:.*##/ { if (length($$1) > width) width = length($$1) } \
+		END { \
+			section = ""; \
+			width += 2; \
+			for (i = 1; i <= NR; i++) { \
+				$$0 = lines[i]; \
+				if ($$0 ~ /^##@/) { \
+					section = substr($$0, 5); \
+				} else if ($$0 ~ /^[a-zA-Z0-9_.-]+:.*##/) { \
+					split($$0, parts, ":.*##"); \
+					if (section != "") printf "\n\033[1m%s\033[0m\n", section; \
+					section = ""; \
+					printf "  \033[36m%-*s\033[0m %s\n", width, parts[1], parts[2]; \
+				} \
+			} \
+		}' $(MAKEFILE_LIST)
+	@printf "\n\033[1mVariables:\033[0m\n"
+	@printf "  \033[36mTAG\033[0m              Release tag for \033[36mmake release\033[0m, for example \033[36mv1.0.0\033[0m\n"
+	@printf "  \033[36mGIT_REMOTE\033[0m       Release git remote, defaults to \033[36m%s\033[0m\n" "$(GIT_REMOTE)"
+	@printf "  \033[36mOS\033[0m               Release OS list: \033[36mdarwin,linux\033[0m\n"
+	@printf "  \033[36mARCH\033[0m             Release arch list: \033[36mamd64,arm64\033[0m\n"
+	@printf "  \033[36mINSTALL_BINDIR\033[0m   Install directory, defaults to \033[36m%s\033[0m\n" "$(INSTALL_BINDIR)"
+	@printf "  \033[36mMULTIPASS_NAME\033[0m   Multipass VM name, defaults to \033[36m%s\033[0m\n" "$(MULTIPASS_NAME)"
 	@printf "\n\033[1mExamples:\033[0m\n"
-	@printf "  \033[36mmake build\033[0m\n"
-	@printf "  \033[36mmake check\033[0m\n"
-	@printf "  \033[36mmake test-e2e\033[0m\n"
-	@printf "  \033[36mmake dist OS=darwin ARCH=arm64\033[0m\n"
-	@printf "  \033[36mmake dist OS=darwin,linux ARCH=amd64,arm64\033[0m\n"
-	@printf "  \033[36mmake -n release\033[0m\n"
-	@printf "  \033[36mmake release\033[0m\n"
+	@printf "  \033[36m%-42s\033[0m # to check formatting without writing\n" "make fmt CHECK_ONLY=1"
+	@printf "  \033[36m%-42s\033[0m # to build and install the host binary\n" "make install"
+	@printf "  \033[36m%-42s\033[0m # to run all local quality gates\n" "make check integration"
+	@printf "  \033[36m%-42s\033[0m # to push the release tag that triggers CI release\n" "make release TAG=v1.0.0"
+	@printf "  \033[36m%-42s\033[0m # to build release binaries and checksums\n" "make dist OS=darwin,linux ARCH=amd64,arm64"
+	@printf "  \033[36m%-42s\033[0m # to prepare a Linux VM for manual testing\n" "make multipass"
