@@ -44,9 +44,8 @@ CMD ["/usr/local/bin/clockping-integration-test", "--ignored", "--nocapture"]
 
 FROM ${RELEASE_BUILD_IMAGE}:${RELEASE_BUILD_IMAGE_TAG} AS release-build
 
-# Keep the scratch release image independent of an OS CA bundle. clockping
-# currently has no TLS client; if one is added, use embedded Rustls/webpki roots
-# rather than copying /etc/ssl/certs into the final image.
+# Keep the scratch release image independent of an OS CA bundle. HTTPS support
+# uses embedded Rustls/webpki roots rather than copying /etc/ssl/certs.
 # hadolint ignore=DL3018
 RUN apk add --no-cache build-base linux-headers
 

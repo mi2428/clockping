@@ -10,6 +10,8 @@ clockping icmp -c 5 -i 0.2 -W 1 8.8.8.8
 clockping icmp --pinger=/usr/bin/ping -w 1 8.8.8.8
 
 clockping tcp example.com:443
+clockping http https://example.com/
+clockping http -X GET --ok-status 200,204,300-399 https://example.com/health
 clockping gtp v1u 192.0.2.10
 clockping gtp v1c 192.0.2.10
 clockping gtp v2c 192.0.2.10
@@ -42,6 +44,18 @@ clockping's target label, `-D` keeps clockping timestamps enabled even when the
 global timestamp preset is `none`, and `-O` annotates timeout events as
 outstanding replies.
 
+## HTTP mode
+
+`clockping http` sends a `HEAD` request by default and measures the time until
+response headers are received. Use `-X GET` to send `GET` instead. Redirects are
+not followed unless `-L`/`--location` is set.
+
+Responses with status codes in `--ok-status` count as replies. The default is
+`200-399`; pass comma-separated values and ranges such as `200,204,300-399` to
+override it. Additional request headers can be supplied with repeated
+`-H 'Name: value'` options. HTTPS uses Rustls with embedded webpki roots, so the
+scratch release image does not need an OS CA bundle.
+
 ## Tests
 
 ```sh
@@ -53,5 +67,5 @@ docker compose -f docker-compose.test.yml up --build --abort-on-container-exit -
 The Docker Compose e2e test starts TCP and GTP targets on a private Docker
 network, then runs the ignored Rust integration test in `tests/integration_test.rs`
 against those targets. It covers
-native ICMP, external `--pinger`, TCP, GTPv1-U, GTPv1-C, GTPv2-C, and JSON
+native ICMP, external `--pinger`, TCP, HTTP, GTPv1-U, GTPv1-C, GTPv2-C, and JSON
 timestamp formatting.

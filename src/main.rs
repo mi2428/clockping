@@ -13,6 +13,7 @@ use crate::{
     output::Output,
     protocol::{
         gtp::{GtpProber, GtpVariant},
+        http::{HttpProber, HttpProberConfig},
         icmp::{self, IcmpEngine},
         tcp::TcpProber,
     },
@@ -59,6 +60,33 @@ async fn main() -> anyhow::Result<()> {
             let prober = TcpProber::new(command.target, command.timeout)
                 .await
                 .context("failed to initialize TCP prober")?;
+            run_probe_loop(prober, runner_config, output, quiet).await?;
+        }
+        Command::Http(command) => {
+            let quiet = command.quiet;
+            let output = make_output(timestamp, timestamp_format.clone(), json, false);
+            let runner_config = RunnerConfig {
+                interval: command.interval,
+                count: command.count,
+                deadline: command.deadline,
+            };
+            let prober = HttpProber::new(HttpProberConfig {
+                target: command.target,
+                method: match command.method {
+                    cli::HttpMethod::Head => reqwest::Method::HEAD,
+                    cli::HttpMethod::Get => reqwest::Method::GET,
+                },
+                timeout: command.timeout,
+                headers: command
+                    .headers
+                    .into_iter()
+                    .map(|header| (header.name, header.value))
+                    .collect(),
+                follow_redirects: command.follow_redirects,
+                insecure: command.insecure,
+                ok_statuses: command.ok_status.into_ranges(),
+            })
+            .context("failed to initialize HTTP prober")?;
             run_probe_loop(prober, runner_config, output, quiet).await?;
         }
         Command::Gtp(command) => {

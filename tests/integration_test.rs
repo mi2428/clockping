@@ -33,6 +33,20 @@ fn docker_compose_e2e() {
     assert_contains(&tcp_output, "tcp tcp-target:8080 seq=0 reply");
     assert_contains(&tcp_output, "1 probes transmitted, 1 replies received");
 
+    let http_output = run_clockping(&[
+        "--timestamp",
+        "none",
+        "http",
+        "-c",
+        "1",
+        "-W",
+        "1",
+        "http://tcp-target:8080/",
+    ]);
+    assert_contains(&http_output, "http http://tcp-target:8080/ seq=0 reply");
+    assert_contains(&http_output, "method=HEAD status=200");
+    assert_contains(&http_output, "1 probes transmitted, 1 replies received");
+
     let json_output = run_clockping(&[
         "--timestamp-format",
         "STAMP",
