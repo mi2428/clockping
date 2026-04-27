@@ -17,6 +17,9 @@ COMPOSE ?= $(shell if $(DOCKER) compose version >/dev/null 2>&1; then printf '%s
 MULTIPASS ?= multipass
 GIT_REMOTE ?= origin
 DOCKER_PLATFORMS ?= linux/amd64,linux/arm64
+HOMEBREW_TAP ?= 1
+HOMEBREW_TAP_DIR ?= ../homebrew-clockping
+HOMEBREW_TAP_REMOTE ?= origin
 
 APP            := clockping
 BINDIR         := bin
@@ -242,8 +245,8 @@ clean: ## Remove local build artifacts
 ##@ Distribution
 
 .PHONY: release
-release: ## Build dist, push multi-arch Docker image, and publish GitHub release. Requires TAG=vX.Y.Z
-	@TAG="$(TAG)" GIT_REMOTE="$(GIT_REMOTE)" DOCKER="$(DOCKER)" DOCKER_PLATFORMS="$(DOCKER_PLATFORMS)" OS="$(OS)" ARCH="$(ARCH)" DISTDIR="$(DISTDIR)" MAKE="$(RELEASE_MAKE)" CARGO="$(CARGO)" RUSTC="$(RUSTC)" RUSTDOC="$(RUSTDOC)" PATH="$(RUST_BINDIR):$(PATH)" bash scripts/release.sh
+release: ## Build dist, push multi-arch Docker image, publish GitHub release, and update Homebrew. Requires TAG=vX.Y.Z
+	@TAG="$(TAG)" GIT_REMOTE="$(GIT_REMOTE)" DOCKER="$(DOCKER)" DOCKER_PLATFORMS="$(DOCKER_PLATFORMS)" OS="$(OS)" ARCH="$(ARCH)" DISTDIR="$(DISTDIR)" HOMEBREW_TAP="$(HOMEBREW_TAP)" HOMEBREW_TAP_DIR="$(HOMEBREW_TAP_DIR)" HOMEBREW_TAP_REMOTE="$(HOMEBREW_TAP_REMOTE)" MAKE="$(RELEASE_MAKE)" CARGO="$(CARGO)" RUSTC="$(RUSTC)" RUSTDOC="$(RUSTDOC)" PATH="$(RUST_BINDIR):$(PATH)" bash scripts/release.sh
 
 .PHONY: releae
 releae: release
@@ -409,6 +412,9 @@ help: ## Show this help message
 	@printf "  \033[36mGIT_REMOTE\033[0m             Release git remote, defaults to \033[36m%s\033[0m\n" "$(GIT_REMOTE)"
 	@printf "  \033[36mDOCKER_PLATFORMS\033[0m       Release image platforms, defaults to \033[36m%s\033[0m\n" "$(DOCKER_PLATFORMS)"
 	@printf "  \033[36mDOCKER_IMAGE\033[0m           Release image name, defaults to \033[36mghcr.io/<owner>/<repo>\033[0m\n"
+	@printf "  \033[36mHOMEBREW_TAP\033[0m           Set to \033[36m0\033[0m to skip Homebrew tap publishing\n"
+	@printf "  \033[36mHOMEBREW_TAP_DIR\033[0m       Local Homebrew tap repo, defaults to \033[36m%s\033[0m\n" "$(HOMEBREW_TAP_DIR)"
+	@printf "  \033[36mHOMEBREW_TAP_REMOTE\033[0m    Homebrew tap git remote, defaults to \033[36m%s\033[0m\n" "$(HOMEBREW_TAP_REMOTE)"
 	@printf "  \033[36mOS\033[0m                     Release OS list: \033[36mdarwin,linux\033[0m\n"
 	@printf "  \033[36mARCH\033[0m                   Release arch list: \033[36mamd64,arm64\033[0m\n"
 	@printf "  \033[36mINSTALL_BINDIR\033[0m         Install directory, defaults to \033[36m%s\033[0m\n" "$(INSTALL_BINDIR)"

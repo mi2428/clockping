@@ -21,7 +21,7 @@ $ make install               # install the binary only
 $ make install COMPLETION=1  # install the binary and shell completions
 ```
 
-## CLI Usage
+## Usage
 
 Pick a probe mode, pass one or more targets, and let clockping print timestamped probe events until the count, deadline, or interrupt stops the run.
 Output and metrics options are global, so they can be placed before or after the mode name.
@@ -350,8 +350,9 @@ Release builds are driven from a local machine to avoid spending GitHub Actions 
 $ make release TAG=v1.0.0
 ```
 
-The release target builds `dist/` binaries and checksums, pushes the multi-arch scratch image to GHCR, and creates or updates the GitHub Release.
-It expects `gh` to be authenticated and Docker Buildx to be able to push `linux/amd64,linux/arm64` images.
+The release target builds `dist/` binaries and checksums, pushes the multi-arch scratch image to GHCR, creates or updates the GitHub Release, and publishes the Homebrew formula.
+It expects `gh` to be authenticated, Docker Buildx to be able to push `linux/amd64,linux/arm64` images, and `../homebrew-clockping` to be a clean local checkout of the tap repo.
+Set `HOMEBREW_TAP=0` to skip the Homebrew tap update.
 
 ## License
 

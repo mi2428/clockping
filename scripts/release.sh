@@ -3,6 +3,7 @@ set -Eeuo pipefail
 
 readonly SEMVER_TAG_RE='^v[0-9]+[.][0-9]+[.][0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?([+][0-9A-Za-z][0-9A-Za-z.-]*)?$'
 readonly APP=clockping
+readonly HOMEBREW_DESC='A multi-protocol, multi-target pinger for watching hosts go dark'
 
 release_created_tag=0
 release_pushed_created_tag=0
@@ -76,6 +77,10 @@ is_prerelease_tag() {
 
 release_build_date() {
   date -u +%Y-%m-%dT%H:%M:%SZ
+}
+
+sha256_file() {
+  shasum -a 256 "$1" | awk '{print $1}'
 }
 
 require_release_tools() {
@@ -201,6 +206,135 @@ publish_github_release() {
     "${assets[@]}"
 }
 
+homebrew_tap_enabled() {
+  case "${HOMEBREW_TAP:-1}" in
+    0|false|FALSE|no|NO) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+require_clean_git_dir() {
+  local dir="$1"
+  local label="$2"
+  local status
+
+  [[ -d "${dir}/.git" ]] || fail "${label} repo not found at ${dir}; set HOMEBREW_TAP_DIR or HOMEBREW_TAP=0"
+
+  status="$(git -C "${dir}" status --porcelain)"
+  if [[ -n "${status}" ]]; then
+    git -C "${dir}" status --short >&2
+    fail "${label} working tree must be clean before release"
+  fi
+}
+
+write_homebrew_tap_readme() {
+  local tap_dir="$1"
+
+  cat > "${tap_dir}/README.md" <<'README'
+# homebrew-clockping
+
+Homebrew tap for `clockping`.
+
+```console
+$ brew tap mi2428/clockping
+$ brew install clockping
+```
+README
+}
+
+write_homebrew_formula() {
+  local formula_file="$1"
+  local tag="$2"
+  local version="$3"
+  local repository="$4"
+  local darwin_amd64_sha="$5"
+  local darwin_arm64_sha="$6"
+
+  cat > "${formula_file}" <<FORMULA
+# typed: false
+# frozen_string_literal: true
+
+class Clockping < Formula
+  desc "${HOMEBREW_DESC}"
+  homepage "https://github.com/${repository}"
+  version "${version}"
+  license "MIT"
+  depends_on :macos
+
+  on_macos do
+    on_arm do
+      url "https://github.com/${repository}/releases/download/${tag}/${APP}-darwin-arm64",
+          using: :nounzip
+      sha256 "${darwin_arm64_sha}"
+    end
+
+    on_intel do
+      url "https://github.com/${repository}/releases/download/${tag}/${APP}-darwin-amd64",
+          using: :nounzip
+      sha256 "${darwin_amd64_sha}"
+    end
+  end
+
+  def install
+    bin.install Dir["${APP}-darwin-*"].first => "${APP}"
+    generate_completions_from_executable(bin/"${APP}", "completion")
+  end
+
+  test do
+    assert_match "${APP} #{version}", shell_output("#{bin}/${APP} --version")
+    assert_match "Usage:", shell_output("#{bin}/${APP} --help")
+  end
+end
+FORMULA
+}
+
+publish_homebrew_formula() {
+  local tag="$1"
+  local repository="$2"
+  local version="${tag#v}"
+  local tap_dir="${HOMEBREW_TAP_DIR:-../homebrew-clockping}"
+  local tap_remote="${HOMEBREW_TAP_REMOTE:-origin}"
+  local dist_dir="${DISTDIR:-dist}"
+  local formula_dir="${tap_dir}/Formula"
+  local formula_file="${formula_dir}/${APP}.rb"
+  local darwin_amd64_binary="${dist_dir}/${APP}-darwin-amd64"
+  local darwin_arm64_binary="${dist_dir}/${APP}-darwin-arm64"
+  local darwin_amd64_sha darwin_arm64_sha
+
+  if ! homebrew_tap_enabled; then
+    printf 'Skipping Homebrew tap update because HOMEBREW_TAP=0\n'
+    return
+  fi
+
+  [[ -f "${darwin_amd64_binary}" ]] || fail "missing Homebrew artifact ${darwin_amd64_binary}; include OS=darwin ARCH=amd64"
+  [[ -f "${darwin_arm64_binary}" ]] || fail "missing Homebrew artifact ${darwin_arm64_binary}; include OS=darwin ARCH=arm64"
+
+  require_clean_git_dir "${tap_dir}" "Homebrew tap"
+
+  darwin_amd64_sha="$(sha256_file "${darwin_amd64_binary}")"
+  darwin_arm64_sha="$(sha256_file "${darwin_arm64_binary}")"
+
+  mkdir -p "${formula_dir}"
+  write_homebrew_tap_readme "${tap_dir}"
+  write_homebrew_formula "${formula_file}" "${tag}" "${version}" "${repository}" "${darwin_amd64_sha}" "${darwin_arm64_sha}"
+
+  if command -v brew >/dev/null 2>&1; then
+    run env HOMEBREW_DEVELOPER=1 brew style --except-cops FormulaAudit/Homepage,FormulaAudit/Desc,FormulaAuditStrict --fix "${formula_file}" || true
+  else
+    printf 'Skipping Homebrew style; brew not found\n'
+  fi
+
+  run git -C "${tap_dir}" add README.md "Formula/${APP}.rb"
+
+  if git -C "${tap_dir}" diff --cached --quiet; then
+    printf 'Homebrew formula is already up to date for %s\n' "${tag}"
+    return
+  fi
+
+  run git -C "${tap_dir}" commit -m "${APP} ${version}"
+  run git -C "${tap_dir}" push "${tap_remote}" HEAD
+}
+
 cleanup() {
   local status=$?
 
@@ -266,6 +400,7 @@ main() {
   release_pushed_created_tag=1
 
   publish_github_release "${tag}" "${release_commit}" "${repository}"
+  publish_homebrew_formula "${tag}" "${repository}"
 
   printf 'Published %s from local artifacts and Docker image(s).\n' "${tag}"
 }
