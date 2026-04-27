@@ -1,7 +1,12 @@
 mod cli;
 mod event;
+mod metrics;
+mod metrics_file;
+mod metrics_options;
 mod output;
+mod prometheus;
 mod protocol;
+mod pushgateway;
 mod runner;
 mod timefmt;
 mod version;
@@ -17,6 +22,7 @@ use clap_complete::generate;
 
 use crate::{
     cli::{Cli, Command},
+    metrics_options::extract_metrics_options,
     output::Output,
     protocol::{
         gtp::{GtpProber, GtpVariant},
@@ -41,7 +47,10 @@ async fn main() -> ExitCode {
 }
 
 async fn run() -> anyhow::Result<ExitCode> {
-    let cli = Cli::parse();
+    let (metrics_options, cli_args) = extract_metrics_options(std::env::args_os().collect())?;
+    let metrics_enabled = metrics_options.is_enabled();
+    let mut metrics_options = Some(metrics_options);
+    let cli = Cli::parse_from(cli_args);
     let timestamp = cli.timestamp;
     let timestamp_format = cli.timestamp_format;
     let json = cli.json;
@@ -56,10 +65,19 @@ async fn run() -> anyhow::Result<ExitCode> {
         }
         Command::Icmp(command) => match icmp::parse_engine(command.args)? {
             IcmpEngine::External(external) => {
+                if metrics_enabled {
+                    anyhow::bail!(
+                        "--push and --metrics are not supported with external --pinger mode"
+                    );
+                }
                 let output = make_output(timestamp, timestamp_format.clone(), json, false);
                 icmp::run_external(external, output).await?;
             }
             IcmpEngine::Native(config) => {
+                let mut metrics = metrics_options
+                    .take()
+                    .expect("metrics options should be consumed once")
+                    .into_reporter()?;
                 let quiet = config.quiet;
                 let output =
                     make_output(timestamp, timestamp_format.clone(), json, config.timestamp);
@@ -71,11 +89,16 @@ async fn run() -> anyhow::Result<ExitCode> {
                 let prober = icmp::NativeIcmpProber::new(config)
                     .await
                     .context("failed to initialize native ICMP prober")?;
-                let summary = run_probe_loop(prober, runner_config, output, quiet).await?;
+                let summary =
+                    run_probe_loop(prober, runner_config, output, quiet, metrics.as_mut()).await?;
                 exit_code = exit_code_for_summary(&summary);
             }
         },
         Command::Tcp(command) => {
+            let mut metrics = metrics_options
+                .take()
+                .expect("metrics options should be consumed once")
+                .into_reporter()?;
             let quiet = command.quiet;
             let output = make_output(timestamp, timestamp_format.clone(), json, false);
             let runner_config = RunnerConfig {
@@ -86,10 +109,15 @@ async fn run() -> anyhow::Result<ExitCode> {
             let prober = TcpProber::new(command.target, command.timeout)
                 .await
                 .context("failed to initialize TCP prober")?;
-            let summary = run_probe_loop(prober, runner_config, output, quiet).await?;
+            let summary =
+                run_probe_loop(prober, runner_config, output, quiet, metrics.as_mut()).await?;
             exit_code = exit_code_for_summary(&summary);
         }
         Command::Http(command) => {
+            let mut metrics = metrics_options
+                .take()
+                .expect("metrics options should be consumed once")
+                .into_reporter()?;
             let quiet = command.quiet;
             let output = make_output(timestamp, timestamp_format.clone(), json, false);
             let runner_config = RunnerConfig {
@@ -114,10 +142,15 @@ async fn run() -> anyhow::Result<ExitCode> {
                 ok_statuses: command.ok_status.into_ranges(),
             })
             .context("failed to initialize HTTP prober")?;
-            let summary = run_probe_loop(prober, runner_config, output, quiet).await?;
+            let summary =
+                run_probe_loop(prober, runner_config, output, quiet, metrics.as_mut()).await?;
             exit_code = exit_code_for_summary(&summary);
         }
         Command::Gtp(command) => {
+            let mut metrics = metrics_options
+                .take()
+                .expect("metrics options should be consumed once")
+                .into_reporter()?;
             let output = make_output(timestamp, timestamp_format.clone(), json, false);
             let (variant, args) = match command.command {
                 cli::GtpSubcommand::V1u(args) => (GtpVariant::V1u, args),
@@ -133,7 +166,8 @@ async fn run() -> anyhow::Result<ExitCode> {
             let prober = GtpProber::new(variant, args.target, args.port, args.timeout)
                 .await
                 .context("failed to initialize GTP prober")?;
-            let summary = run_probe_loop(prober, runner_config, output, quiet).await?;
+            let summary =
+                run_probe_loop(prober, runner_config, output, quiet, metrics.as_mut()).await?;
             exit_code = exit_code_for_summary(&summary);
         }
     }

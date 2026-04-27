@@ -7,6 +7,7 @@ use tokio::time;
 
 use crate::{
     event::{ProbeEvent, ProbeOutcome, Recovery},
+    metrics::{MetricsReporter, ProbeMetrics},
     output::Output,
 };
 
@@ -117,6 +118,7 @@ pub async fn run_probe_loop<P: Prober + Send>(
     config: RunnerConfig,
     output: Output,
     quiet: bool,
+    mut metrics: Option<&mut MetricsReporter>,
 ) -> Result<Summary> {
     let interval_duration = if config.interval.is_zero() {
         Duration::from_nanos(1)
@@ -156,21 +158,30 @@ pub async fn run_probe_loop<P: Prober + Send>(
             outcome = prober.probe(seq) => outcome,
         };
         let recovery = summary.record(ts, &outcome);
+        let event = ProbeEvent {
+            ts,
+            protocol: prober.protocol(),
+            target: prober.target().to_string(),
+            seq,
+            outcome,
+            recovery,
+        };
+        if let Some(metrics) = metrics.as_deref_mut() {
+            metrics
+                .record(ProbeMetrics::from_event(&event, &summary))
+                .await?;
+        }
         if !quiet {
-            output.print_event(&ProbeEvent {
-                ts,
-                protocol: prober.protocol(),
-                target: prober.target().to_string(),
-                seq,
-                outcome,
-                recovery,
-            })?;
+            output.print_event(&event)?;
         }
         seq += 1;
     }
 
     summary.finalize();
     output.print_summary(&summary, quiet)?;
+    if let Some(metrics) = metrics {
+        metrics.finish().await;
+    }
     Ok(summary)
 }
 

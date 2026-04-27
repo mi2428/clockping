@@ -92,7 +92,7 @@ _clockping() {
 
     case "${cmd}" in
         clockping)
-            opts="-h -V --timestamp --timestamp-format --json --help --version icmp tcp http gtp completion help"
+            opts="-h -V --timestamp --timestamp-format --json --push.url --push.delete-on-exit --push.interval --push.job --push.label --push.retries --push.timeout --push.user-agent --metrics.file --metrics.format --metrics.label --metrics.prefix --help --version icmp tcp http gtp completion help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 1 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -106,6 +106,50 @@ _clockping() {
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
+                --push.url)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --push.interval)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --push.job)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --push.label)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --push.retries)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --push.timeout)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --push.user-agent)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --metrics.file)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --metrics.format)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --metrics.label)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --metrics.prefix)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 *)
                     COMPREPLY=()
                     ;;
@@ -114,12 +158,56 @@ _clockping() {
             return 0
             ;;
         clockping__subcmd__completion)
-            opts="-h --help bash elvish fish powershell zsh"
+            opts="-h --push.url --push.delete-on-exit --push.interval --push.job --push.label --push.retries --push.timeout --push.user-agent --metrics.file --metrics.format --metrics.label --metrics.prefix --help bash elvish fish powershell zsh"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
             case "${prev}" in
+                --push.url)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --push.interval)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --push.job)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --push.label)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --push.retries)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --push.timeout)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --push.user-agent)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --metrics.file)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --metrics.format)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --metrics.label)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --metrics.prefix)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 *)
                     COMPREPLY=()
                     ;;
@@ -128,12 +216,56 @@ _clockping() {
             return 0
             ;;
         clockping__subcmd__gtp)
-            opts="-h --help v1u v1c v2c help"
+            opts="-h --push.url --push.delete-on-exit --push.interval --push.job --push.label --push.retries --push.timeout --push.user-agent --metrics.file --metrics.format --metrics.label --metrics.prefix --help v1u v1c v2c help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
             case "${prev}" in
+                --push.url)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --push.interval)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --push.job)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --push.label)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --push.retries)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --push.timeout)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --push.user-agent)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --metrics.file)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --metrics.format)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --metrics.label)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --metrics.prefix)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 *)
                     COMPREPLY=()
                     ;;
@@ -212,7 +344,7 @@ _clockping() {
             return 0
             ;;
         clockping__subcmd__gtp__subcmd__v1c)
-            opts="-c -i -W -w -q -h --count --interval --timeout --deadline --port --quiet --help <TARGET>"
+            opts="-c -i -W -w -q -h --count --interval --timeout --deadline --port --quiet --push.url --push.delete-on-exit --push.interval --push.job --push.label --push.retries --push.timeout --push.user-agent --metrics.file --metrics.format --metrics.label --metrics.prefix --help <TARGET>"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -251,6 +383,50 @@ _clockping() {
                     return 0
                     ;;
                 --port)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --push.url)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --push.interval)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --push.job)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --push.label)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --push.retries)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --push.timeout)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --push.user-agent)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --metrics.file)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --metrics.format)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --metrics.label)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --metrics.prefix)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -262,7 +438,7 @@ _clockping() {
             return 0
             ;;
         clockping__subcmd__gtp__subcmd__v1u)
-            opts="-c -i -W -w -q -h --count --interval --timeout --deadline --port --quiet --help <TARGET>"
+            opts="-c -i -W -w -q -h --count --interval --timeout --deadline --port --quiet --push.url --push.delete-on-exit --push.interval --push.job --push.label --push.retries --push.timeout --push.user-agent --metrics.file --metrics.format --metrics.label --metrics.prefix --help <TARGET>"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -301,6 +477,50 @@ _clockping() {
                     return 0
                     ;;
                 --port)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --push.url)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --push.interval)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --push.job)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --push.label)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --push.retries)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --push.timeout)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --push.user-agent)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --metrics.file)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --metrics.format)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --metrics.label)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --metrics.prefix)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -312,7 +532,7 @@ _clockping() {
             return 0
             ;;
         clockping__subcmd__gtp__subcmd__v2c)
-            opts="-c -i -W -w -q -h --count --interval --timeout --deadline --port --quiet --help <TARGET>"
+            opts="-c -i -W -w -q -h --count --interval --timeout --deadline --port --quiet --push.url --push.delete-on-exit --push.interval --push.job --push.label --push.retries --push.timeout --push.user-agent --metrics.file --metrics.format --metrics.label --metrics.prefix --help <TARGET>"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -351,6 +571,50 @@ _clockping() {
                     return 0
                     ;;
                 --port)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --push.url)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --push.interval)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --push.job)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --push.label)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --push.retries)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --push.timeout)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --push.user-agent)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --metrics.file)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --metrics.format)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --metrics.label)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --metrics.prefix)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -502,7 +766,7 @@ _clockping() {
             return 0
             ;;
         clockping__subcmd__http)
-            opts="-c -i -W -w -X -H -L -k -q -h --count --interval --timeout --deadline --method --ok-status --header --location --insecure --quiet --help <TARGET>"
+            opts="-c -i -W -w -X -H -L -k -q -h --count --interval --timeout --deadline --method --ok-status --header --location --insecure --quiet --push.url --push.delete-on-exit --push.interval --push.job --push.label --push.retries --push.timeout --push.user-agent --metrics.file --metrics.format --metrics.label --metrics.prefix --help <TARGET>"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -560,6 +824,50 @@ _clockping() {
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
+                --push.url)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --push.interval)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --push.job)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --push.label)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --push.retries)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --push.timeout)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --push.user-agent)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --metrics.file)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --metrics.format)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --metrics.label)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --metrics.prefix)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 *)
                     COMPREPLY=()
                     ;;
@@ -568,12 +876,56 @@ _clockping() {
             return 0
             ;;
         clockping__subcmd__icmp)
-            opts="-h --help [ARGS]..."
+            opts="-h --push.url --push.delete-on-exit --push.interval --push.job --push.label --push.retries --push.timeout --push.user-agent --metrics.file --metrics.format --metrics.label --metrics.prefix --help [ARGS]..."
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
             case "${prev}" in
+                --push.url)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --push.interval)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --push.job)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --push.label)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --push.retries)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --push.timeout)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --push.user-agent)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --metrics.file)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --metrics.format)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --metrics.label)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --metrics.prefix)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 *)
                     COMPREPLY=()
                     ;;
@@ -582,7 +934,7 @@ _clockping() {
             return 0
             ;;
         clockping__subcmd__tcp)
-            opts="-c -i -W -w -q -h --count --interval --timeout --deadline --quiet --help <TARGET>"
+            opts="-c -i -W -w -q -h --count --interval --timeout --deadline --quiet --push.url --push.delete-on-exit --push.interval --push.job --push.label --push.retries --push.timeout --push.user-agent --metrics.file --metrics.format --metrics.label --metrics.prefix --help <TARGET>"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -617,6 +969,50 @@ _clockping() {
                     return 0
                     ;;
                 -w)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --push.url)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --push.interval)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --push.job)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --push.label)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --push.retries)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --push.timeout)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --push.user-agent)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --metrics.file)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --metrics.format)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --metrics.label)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --metrics.prefix)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;

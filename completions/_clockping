@@ -17,7 +17,19 @@ _clockping() {
     _arguments "${_arguments_options[@]}" : \
 '--timestamp=[Timestamp preset for human-readable output]:TIMESTAMP:(local rfc3339 unix unix-ms none)' \
 '--timestamp-format=[strftime-like timestamp format, similar to \`date +"..."\`]:TIMESTAMP_FORMAT:_default' \
+'--push.url=[Push interval metrics to a Pushgateway URL]:URL:_default' \
+'--push.interval=[Aggregate interval samples before pushing window metrics]:DURATION:_default' \
+'--push.job=[Pushgateway job name]:JOB:_default' \
+'*--push.label=[Add a Pushgateway grouping label. Repeat for multiple labels]:KEY=VALUE:_default' \
+'--push.retries=[Retry failed Pushgateway requests N times]:N:_default' \
+'--push.timeout=[Pushgateway request timeout]:DURATION:_default' \
+'--push.user-agent=[HTTP User-Agent for Pushgateway requests]:VALUE:_default' \
+'--metrics.file=[Write live interval metrics to a file]:PATH:_default' \
+'--metrics.format=[Metrics file format\: jsonl or prometheus]:FORMAT:_default' \
+'*--metrics.label=[Add a Prometheus file sample label. Repeat for multiple labels]:KEY=VALUE:_default' \
+'--metrics.prefix=[Prometheus metric name prefix]:PREFIX:_default' \
 '--json[Emit JSON Lines instead of text]' \
+'--push.delete-on-exit[Delete this Pushgateway grouping key after the run exits]' \
 '-h[Print help]' \
 '--help[Print help]' \
 '-V[Print version]' \
@@ -33,6 +45,18 @@ _clockping() {
         case $line[1] in
             (icmp)
 _arguments "${_arguments_options[@]}" : \
+'--push.url=[Push interval metrics to a Pushgateway URL]:URL:_default' \
+'--push.interval=[Aggregate interval samples before pushing window metrics]:DURATION:_default' \
+'--push.job=[Pushgateway job name]:JOB:_default' \
+'*--push.label=[Add a Pushgateway grouping label. Repeat for multiple labels]:KEY=VALUE:_default' \
+'--push.retries=[Retry failed Pushgateway requests N times]:N:_default' \
+'--push.timeout=[Pushgateway request timeout]:DURATION:_default' \
+'--push.user-agent=[HTTP User-Agent for Pushgateway requests]:VALUE:_default' \
+'--metrics.file=[Write live interval metrics to a file]:PATH:_default' \
+'--metrics.format=[Metrics file format\: jsonl or prometheus]:FORMAT:_default' \
+'*--metrics.label=[Add a Prometheus file sample label. Repeat for multiple labels]:KEY=VALUE:_default' \
+'--metrics.prefix=[Prometheus metric name prefix]:PREFIX:_default' \
+'--push.delete-on-exit[Delete this Pushgateway grouping key after the run exits]' \
 '-h[Print help]' \
 '--help[Print help]' \
 '*::args -- ICMP native options, or system ping argv when --pinger is specified:_default' \
@@ -48,8 +72,20 @@ _arguments "${_arguments_options[@]}" : \
 '--timeout=[Per-probe connect timeout in seconds]:TIMEOUT:_default' \
 '-w+[Stop the command after this many seconds]:DEADLINE:_default' \
 '--deadline=[Stop the command after this many seconds]:DEADLINE:_default' \
+'--push.url=[Push interval metrics to a Pushgateway URL]:URL:_default' \
+'--push.interval=[Aggregate interval samples before pushing window metrics]:DURATION:_default' \
+'--push.job=[Pushgateway job name]:JOB:_default' \
+'*--push.label=[Add a Pushgateway grouping label. Repeat for multiple labels]:KEY=VALUE:_default' \
+'--push.retries=[Retry failed Pushgateway requests N times]:N:_default' \
+'--push.timeout=[Pushgateway request timeout]:DURATION:_default' \
+'--push.user-agent=[HTTP User-Agent for Pushgateway requests]:VALUE:_default' \
+'--metrics.file=[Write live interval metrics to a file]:PATH:_default' \
+'--metrics.format=[Metrics file format\: jsonl or prometheus]:FORMAT:_default' \
+'*--metrics.label=[Add a Prometheus file sample label. Repeat for multiple labels]:KEY=VALUE:_default' \
+'--metrics.prefix=[Prometheus metric name prefix]:PREFIX:_default' \
 '-q[Suppress per-probe output and only print the summary]' \
 '--quiet[Suppress per-probe output and only print the summary]' \
+'--push.delete-on-exit[Delete this Pushgateway grouping key after the run exits]' \
 '-h[Print help]' \
 '--help[Print help]' \
 ':target -- Target as host\:port:_default' \
@@ -70,12 +106,24 @@ _arguments "${_arguments_options[@]}" : \
 '--ok-status=[Treat these HTTP status codes as successful, e.g. 200,204,300-399]:OK_STATUS:_default' \
 '*-H+[Add a request header. Repeat for multiple headers]:HEADERS:_default' \
 '*--header=[Add a request header. Repeat for multiple headers]:HEADERS:_default' \
+'--push.url=[Push interval metrics to a Pushgateway URL]:URL:_default' \
+'--push.interval=[Aggregate interval samples before pushing window metrics]:DURATION:_default' \
+'--push.job=[Pushgateway job name]:JOB:_default' \
+'*--push.label=[Add a Pushgateway grouping label. Repeat for multiple labels]:KEY=VALUE:_default' \
+'--push.retries=[Retry failed Pushgateway requests N times]:N:_default' \
+'--push.timeout=[Pushgateway request timeout]:DURATION:_default' \
+'--push.user-agent=[HTTP User-Agent for Pushgateway requests]:VALUE:_default' \
+'--metrics.file=[Write live interval metrics to a file]:PATH:_default' \
+'--metrics.format=[Metrics file format\: jsonl or prometheus]:FORMAT:_default' \
+'*--metrics.label=[Add a Prometheus file sample label. Repeat for multiple labels]:KEY=VALUE:_default' \
+'--metrics.prefix=[Prometheus metric name prefix]:PREFIX:_default' \
 '-L[Follow HTTP redirects]' \
 '--location[Follow HTTP redirects]' \
 '-k[Skip TLS certificate verification]' \
 '--insecure[Skip TLS certificate verification]' \
 '-q[Suppress per-probe output and only print the summary]' \
 '--quiet[Suppress per-probe output and only print the summary]' \
+'--push.delete-on-exit[Delete this Pushgateway grouping key after the run exits]' \
 '-h[Print help]' \
 '--help[Print help]' \
 ':target -- Target URL. If no scheme is given, http\:// is assumed:_default' \
@@ -83,6 +131,18 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (gtp)
 _arguments "${_arguments_options[@]}" : \
+'--push.url=[Push interval metrics to a Pushgateway URL]:URL:_default' \
+'--push.interval=[Aggregate interval samples before pushing window metrics]:DURATION:_default' \
+'--push.job=[Pushgateway job name]:JOB:_default' \
+'*--push.label=[Add a Pushgateway grouping label. Repeat for multiple labels]:KEY=VALUE:_default' \
+'--push.retries=[Retry failed Pushgateway requests N times]:N:_default' \
+'--push.timeout=[Pushgateway request timeout]:DURATION:_default' \
+'--push.user-agent=[HTTP User-Agent for Pushgateway requests]:VALUE:_default' \
+'--metrics.file=[Write live interval metrics to a file]:PATH:_default' \
+'--metrics.format=[Metrics file format\: jsonl or prometheus]:FORMAT:_default' \
+'*--metrics.label=[Add a Prometheus file sample label. Repeat for multiple labels]:KEY=VALUE:_default' \
+'--metrics.prefix=[Prometheus metric name prefix]:PREFIX:_default' \
+'--push.delete-on-exit[Delete this Pushgateway grouping key after the run exits]' \
 '-h[Print help]' \
 '--help[Print help]' \
 ":: :_clockping__subcmd__gtp_commands" \
@@ -106,8 +166,20 @@ _arguments "${_arguments_options[@]}" : \
 '-w+[Stop the command after this many seconds]:DEADLINE:_default' \
 '--deadline=[Stop the command after this many seconds]:DEADLINE:_default' \
 '--port=[Override the protocol default UDP port]:PORT:_default' \
+'--push.url=[Push interval metrics to a Pushgateway URL]:URL:_default' \
+'--push.interval=[Aggregate interval samples before pushing window metrics]:DURATION:_default' \
+'--push.job=[Pushgateway job name]:JOB:_default' \
+'*--push.label=[Add a Pushgateway grouping label. Repeat for multiple labels]:KEY=VALUE:_default' \
+'--push.retries=[Retry failed Pushgateway requests N times]:N:_default' \
+'--push.timeout=[Pushgateway request timeout]:DURATION:_default' \
+'--push.user-agent=[HTTP User-Agent for Pushgateway requests]:VALUE:_default' \
+'--metrics.file=[Write live interval metrics to a file]:PATH:_default' \
+'--metrics.format=[Metrics file format\: jsonl or prometheus]:FORMAT:_default' \
+'*--metrics.label=[Add a Prometheus file sample label. Repeat for multiple labels]:KEY=VALUE:_default' \
+'--metrics.prefix=[Prometheus metric name prefix]:PREFIX:_default' \
 '-q[Suppress per-probe output and only print the summary]' \
 '--quiet[Suppress per-probe output and only print the summary]' \
+'--push.delete-on-exit[Delete this Pushgateway grouping key after the run exits]' \
 '-h[Print help]' \
 '--help[Print help]' \
 ':target -- Target host or IP address:_default' \
@@ -124,8 +196,20 @@ _arguments "${_arguments_options[@]}" : \
 '-w+[Stop the command after this many seconds]:DEADLINE:_default' \
 '--deadline=[Stop the command after this many seconds]:DEADLINE:_default' \
 '--port=[Override the protocol default UDP port]:PORT:_default' \
+'--push.url=[Push interval metrics to a Pushgateway URL]:URL:_default' \
+'--push.interval=[Aggregate interval samples before pushing window metrics]:DURATION:_default' \
+'--push.job=[Pushgateway job name]:JOB:_default' \
+'*--push.label=[Add a Pushgateway grouping label. Repeat for multiple labels]:KEY=VALUE:_default' \
+'--push.retries=[Retry failed Pushgateway requests N times]:N:_default' \
+'--push.timeout=[Pushgateway request timeout]:DURATION:_default' \
+'--push.user-agent=[HTTP User-Agent for Pushgateway requests]:VALUE:_default' \
+'--metrics.file=[Write live interval metrics to a file]:PATH:_default' \
+'--metrics.format=[Metrics file format\: jsonl or prometheus]:FORMAT:_default' \
+'*--metrics.label=[Add a Prometheus file sample label. Repeat for multiple labels]:KEY=VALUE:_default' \
+'--metrics.prefix=[Prometheus metric name prefix]:PREFIX:_default' \
 '-q[Suppress per-probe output and only print the summary]' \
 '--quiet[Suppress per-probe output and only print the summary]' \
+'--push.delete-on-exit[Delete this Pushgateway grouping key after the run exits]' \
 '-h[Print help]' \
 '--help[Print help]' \
 ':target -- Target host or IP address:_default' \
@@ -142,8 +226,20 @@ _arguments "${_arguments_options[@]}" : \
 '-w+[Stop the command after this many seconds]:DEADLINE:_default' \
 '--deadline=[Stop the command after this many seconds]:DEADLINE:_default' \
 '--port=[Override the protocol default UDP port]:PORT:_default' \
+'--push.url=[Push interval metrics to a Pushgateway URL]:URL:_default' \
+'--push.interval=[Aggregate interval samples before pushing window metrics]:DURATION:_default' \
+'--push.job=[Pushgateway job name]:JOB:_default' \
+'*--push.label=[Add a Pushgateway grouping label. Repeat for multiple labels]:KEY=VALUE:_default' \
+'--push.retries=[Retry failed Pushgateway requests N times]:N:_default' \
+'--push.timeout=[Pushgateway request timeout]:DURATION:_default' \
+'--push.user-agent=[HTTP User-Agent for Pushgateway requests]:VALUE:_default' \
+'--metrics.file=[Write live interval metrics to a file]:PATH:_default' \
+'--metrics.format=[Metrics file format\: jsonl or prometheus]:FORMAT:_default' \
+'*--metrics.label=[Add a Prometheus file sample label. Repeat for multiple labels]:KEY=VALUE:_default' \
+'--metrics.prefix=[Prometheus metric name prefix]:PREFIX:_default' \
 '-q[Suppress per-probe output and only print the summary]' \
 '--quiet[Suppress per-probe output and only print the summary]' \
+'--push.delete-on-exit[Delete this Pushgateway grouping key after the run exits]' \
 '-h[Print help]' \
 '--help[Print help]' \
 ':target -- Target host or IP address:_default' \
@@ -187,6 +283,18 @@ esac
 ;;
 (completion)
 _arguments "${_arguments_options[@]}" : \
+'--push.url=[Push interval metrics to a Pushgateway URL]:URL:_default' \
+'--push.interval=[Aggregate interval samples before pushing window metrics]:DURATION:_default' \
+'--push.job=[Pushgateway job name]:JOB:_default' \
+'*--push.label=[Add a Pushgateway grouping label. Repeat for multiple labels]:KEY=VALUE:_default' \
+'--push.retries=[Retry failed Pushgateway requests N times]:N:_default' \
+'--push.timeout=[Pushgateway request timeout]:DURATION:_default' \
+'--push.user-agent=[HTTP User-Agent for Pushgateway requests]:VALUE:_default' \
+'--metrics.file=[Write live interval metrics to a file]:PATH:_default' \
+'--metrics.format=[Metrics file format\: jsonl or prometheus]:FORMAT:_default' \
+'*--metrics.label=[Add a Prometheus file sample label. Repeat for multiple labels]:KEY=VALUE:_default' \
+'--metrics.prefix=[Prometheus metric name prefix]:PREFIX:_default' \
+'--push.delete-on-exit[Delete this Pushgateway grouping key after the run exits]' \
 '-h[Print help]' \
 '--help[Print help]' \
 ':shell -- Shell to generate completion script for:(bash elvish fish powershell zsh)' \

@@ -53,8 +53,64 @@ pub struct Cli {
     #[arg(long)]
     pub json: bool,
 
+    #[command(flatten)]
+    pub metrics: MetricsCliOptions,
+
     #[command(subcommand)]
     pub command: Command,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Args)]
+#[command(next_help_heading = "Metrics Options")]
+pub struct MetricsCliOptions {
+    /// Push interval metrics to a Pushgateway URL.
+    #[arg(long = "push.url", global = true, value_name = "URL")]
+    pub push_url: Option<String>,
+
+    /// Delete this Pushgateway grouping key after the run exits.
+    #[arg(long = "push.delete-on-exit", global = true)]
+    pub push_delete_on_exit: bool,
+
+    /// Aggregate interval samples before pushing window metrics.
+    #[arg(long = "push.interval", global = true, value_name = "DURATION")]
+    pub push_interval: Option<String>,
+
+    /// Pushgateway job name.
+    #[arg(long = "push.job", global = true, value_name = "JOB")]
+    pub push_job: Option<String>,
+
+    /// Add a Pushgateway grouping label. Repeat for multiple labels.
+    #[arg(long = "push.label", global = true, value_name = "KEY=VALUE")]
+    pub push_labels: Vec<String>,
+
+    /// Retry failed Pushgateway requests N times.
+    #[arg(long = "push.retries", global = true, value_name = "N")]
+    pub push_retries: Option<u32>,
+
+    /// Pushgateway request timeout.
+    #[arg(long = "push.timeout", global = true, value_name = "DURATION")]
+    pub push_timeout: Option<String>,
+
+    /// HTTP User-Agent for Pushgateway requests.
+    #[arg(long = "push.user-agent", global = true, value_name = "VALUE")]
+    pub push_user_agent: Option<String>,
+
+    /// Write live interval metrics to a file.
+    #[arg(long = "metrics.file", global = true, value_name = "PATH")]
+    pub metrics_file: Option<String>,
+
+    /// Metrics file format: jsonl or prometheus.
+    #[arg(long = "metrics.format", global = true, value_name = "FORMAT")]
+    pub metrics_format: Option<String>,
+
+    /// Add a Prometheus file sample label. Repeat for multiple labels.
+    #[arg(long = "metrics.label", global = true, value_name = "KEY=VALUE")]
+    pub metrics_labels: Vec<String>,
+
+    /// Prometheus metric name prefix.
+    #[arg(long = "metrics.prefix", global = true, value_name = "PREFIX")]
+    pub metrics_prefix: Option<String>,
 }
 
 #[derive(Debug, Subcommand)]
