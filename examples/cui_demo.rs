@@ -9,10 +9,10 @@ use std::{
 };
 
 // Captured output for:
-// clockping --out.colored icmp -c 4 1.1.1.1 8.8.8.8
+// clockping icmp -c 4 2001:4860:4860::8888 8.8.8.8 2606:4700:4700::1111 1.1.1.1
 //
 // The delay is milliseconds since the previous line. Replies for the same
-// sequence use zero delay to match two probes completing at the same tick.
+// sequence use zero delay to match probes completing at the same tick.
 struct Frame {
     delay_ms: u64,
     timestamp: Option<&'static str>,
@@ -22,38 +22,73 @@ struct Frame {
 const FRAMES: &[Frame] = &[
     Frame {
         delay_ms: 120,
-        timestamp: Some("2026-05-15 12:48:55.054 +0900"),
-        line: "\x1b[36micmp\x1b[0m \x1b[34m1.1.1.1 (1.1.1.1)\x1b[0m seq=\x1b[33m0\x1b[0m \x1b[32mreply\x1b[0m from=\x1b[34m1.1.1.1\x1b[0m bytes=\x1b[36m64\x1b[0m ttl=\x1b[35m58\x1b[0m rtt=\x1b[32m7.440ms\x1b[0m icmp_seq=\x1b[33m0\x1b[0m",
+        timestamp: Some("2026-05-15 13:40:41.894 +0900"),
+        line: "\x1b[36micmp\x1b[0m \x1b[34m2606:4700:4700::1111 (2606:4700:4700::1111)\x1b[0m seq=\x1b[33m0\x1b[0m \x1b[32mreply\x1b[0m from=\x1b[34m2606:4700:4700::1111\x1b[0m bytes=\x1b[36m64\x1b[0m ttl=\x1b[35m0\x1b[0m rtt=\x1b[32m7.546ms\x1b[0m icmp_seq=\x1b[33m0\x1b[0m",
     },
     Frame {
         delay_ms: 0,
-        timestamp: Some("2026-05-15 12:48:55.054 +0900"),
-        line: "\x1b[36micmp\x1b[0m \x1b[34m8.8.8.8 (8.8.8.8)\x1b[0m seq=\x1b[33m0\x1b[0m \x1b[32mreply\x1b[0m from=\x1b[34m8.8.8.8\x1b[0m bytes=\x1b[36m64\x1b[0m ttl=\x1b[35m117\x1b[0m rtt=\x1b[32m7.421ms\x1b[0m icmp_seq=\x1b[33m0\x1b[0m",
-    },
-    Frame {
-        delay_ms: 1_000,
-        timestamp: Some("2026-05-15 12:48:56.055 +0900"),
-        line: "\x1b[36micmp\x1b[0m \x1b[34m8.8.8.8 (8.8.8.8)\x1b[0m seq=\x1b[33m1\x1b[0m \x1b[32mreply\x1b[0m from=\x1b[34m8.8.8.8\x1b[0m bytes=\x1b[36m64\x1b[0m ttl=\x1b[35m117\x1b[0m rtt=\x1b[32m6.901ms\x1b[0m icmp_seq=\x1b[33m1\x1b[0m",
+        timestamp: Some("2026-05-15 13:40:41.894 +0900"),
+        line: "\x1b[36micmp\x1b[0m \x1b[34m2001:4860:4860::8888 (2001:4860:4860::8888)\x1b[0m seq=\x1b[33m0\x1b[0m \x1b[32mreply\x1b[0m from=\x1b[34m2001:4860:4860::8888\x1b[0m bytes=\x1b[36m64\x1b[0m ttl=\x1b[35m0\x1b[0m rtt=\x1b[32m7.538ms\x1b[0m icmp_seq=\x1b[33m0\x1b[0m",
     },
     Frame {
         delay_ms: 0,
-        timestamp: Some("2026-05-15 12:48:56.055 +0900"),
-        line: "\x1b[36micmp\x1b[0m \x1b[34m1.1.1.1 (1.1.1.1)\x1b[0m seq=\x1b[33m1\x1b[0m \x1b[32mreply\x1b[0m from=\x1b[34m1.1.1.1\x1b[0m bytes=\x1b[36m64\x1b[0m ttl=\x1b[35m58\x1b[0m rtt=\x1b[32m6.868ms\x1b[0m icmp_seq=\x1b[33m1\x1b[0m",
-    },
-    Frame {
-        delay_ms: 1_000,
-        timestamp: Some("2026-05-15 12:48:57.055 +0900"),
-        line: "\x1b[36micmp\x1b[0m \x1b[34m8.8.8.8 (8.8.8.8)\x1b[0m seq=\x1b[33m2\x1b[0m \x1b[32mreply\x1b[0m from=\x1b[34m8.8.8.8\x1b[0m bytes=\x1b[36m64\x1b[0m ttl=\x1b[35m117\x1b[0m rtt=\x1b[32m5.949ms\x1b[0m icmp_seq=\x1b[33m2\x1b[0m",
+        timestamp: Some("2026-05-15 13:40:41.894 +0900"),
+        line: "\x1b[36micmp\x1b[0m \x1b[34m8.8.8.8 (8.8.8.8)\x1b[0m seq=\x1b[33m0\x1b[0m \x1b[32mreply\x1b[0m from=\x1b[34m8.8.8.8\x1b[0m bytes=\x1b[36m64\x1b[0m ttl=\x1b[35m117\x1b[0m rtt=\x1b[32m7.841ms\x1b[0m icmp_seq=\x1b[33m0\x1b[0m",
     },
     Frame {
         delay_ms: 0,
-        timestamp: Some("2026-05-15 12:48:57.055 +0900"),
-        line: "\x1b[36micmp\x1b[0m \x1b[34m1.1.1.1 (1.1.1.1)\x1b[0m seq=\x1b[33m2\x1b[0m \x1b[32mreply\x1b[0m from=\x1b[34m1.1.1.1\x1b[0m bytes=\x1b[36m64\x1b[0m ttl=\x1b[35m58\x1b[0m rtt=\x1b[32m6.133ms\x1b[0m icmp_seq=\x1b[33m2\x1b[0m",
+        timestamp: Some("2026-05-15 13:40:41.894 +0900"),
+        line: "\x1b[36micmp\x1b[0m \x1b[34m1.1.1.1 (1.1.1.1)\x1b[0m seq=\x1b[33m0\x1b[0m \x1b[32mreply\x1b[0m from=\x1b[34m1.1.1.1\x1b[0m bytes=\x1b[36m64\x1b[0m ttl=\x1b[35m58\x1b[0m rtt=\x1b[32m7.914ms\x1b[0m icmp_seq=\x1b[33m0\x1b[0m",
     },
     Frame {
         delay_ms: 1_000,
-        timestamp: Some("2026-05-15 12:48:58.054 +0900"),
-        line: "\x1b[36micmp\x1b[0m \x1b[34m8.8.8.8 (8.8.8.8)\x1b[0m seq=\x1b[33m3\x1b[0m \x1b[32mreply\x1b[0m from=\x1b[34m8.8.8.8\x1b[0m bytes=\x1b[36m64\x1b[0m ttl=\x1b[35m117\x1b[0m rtt=\x1b[32m5.457ms\x1b[0m icmp_seq=\x1b[33m3\x1b[0m",
+        timestamp: Some("2026-05-15 13:40:42.895 +0900"),
+        line: "\x1b[36micmp\x1b[0m \x1b[34m2001:4860:4860::8888 (2001:4860:4860::8888)\x1b[0m seq=\x1b[33m1\x1b[0m \x1b[32mreply\x1b[0m from=\x1b[34m2001:4860:4860::8888\x1b[0m bytes=\x1b[36m64\x1b[0m ttl=\x1b[35m0\x1b[0m rtt=\x1b[32m5.601ms\x1b[0m icmp_seq=\x1b[33m1\x1b[0m",
+    },
+    Frame {
+        delay_ms: 0,
+        timestamp: Some("2026-05-15 13:40:42.895 +0900"),
+        line: "\x1b[36micmp\x1b[0m \x1b[34m2606:4700:4700::1111 (2606:4700:4700::1111)\x1b[0m seq=\x1b[33m1\x1b[0m \x1b[32mreply\x1b[0m from=\x1b[34m2606:4700:4700::1111\x1b[0m bytes=\x1b[36m64\x1b[0m ttl=\x1b[35m0\x1b[0m rtt=\x1b[32m5.438ms\x1b[0m icmp_seq=\x1b[33m1\x1b[0m",
+    },
+    Frame {
+        delay_ms: 0,
+        timestamp: Some("2026-05-15 13:40:42.895 +0900"),
+        line: "\x1b[36micmp\x1b[0m \x1b[34m8.8.8.8 (8.8.8.8)\x1b[0m seq=\x1b[33m1\x1b[0m \x1b[32mreply\x1b[0m from=\x1b[34m8.8.8.8\x1b[0m bytes=\x1b[36m64\x1b[0m ttl=\x1b[35m117\x1b[0m rtt=\x1b[32m5.759ms\x1b[0m icmp_seq=\x1b[33m1\x1b[0m",
+    },
+    Frame {
+        delay_ms: 0,
+        timestamp: Some("2026-05-15 13:40:42.895 +0900"),
+        line: "\x1b[36micmp\x1b[0m \x1b[34m1.1.1.1 (1.1.1.1)\x1b[0m seq=\x1b[33m1\x1b[0m \x1b[32mreply\x1b[0m from=\x1b[34m1.1.1.1\x1b[0m bytes=\x1b[36m64\x1b[0m ttl=\x1b[35m58\x1b[0m rtt=\x1b[32m6.860ms\x1b[0m icmp_seq=\x1b[33m1\x1b[0m",
+    },
+    Frame {
+        delay_ms: 1_000,
+        timestamp: Some("2026-05-15 13:40:43.894 +0900"),
+        line: "\x1b[36micmp\x1b[0m \x1b[34m2001:4860:4860::8888 (2001:4860:4860::8888)\x1b[0m seq=\x1b[33m2\x1b[0m \x1b[32mreply\x1b[0m from=\x1b[34m2001:4860:4860::8888\x1b[0m bytes=\x1b[36m64\x1b[0m ttl=\x1b[35m0\x1b[0m rtt=\x1b[32m4.787ms\x1b[0m icmp_seq=\x1b[33m2\x1b[0m",
+    },
+    Frame {
+        delay_ms: 0,
+        timestamp: Some("2026-05-15 13:40:43.893 +0900"),
+        line: "\x1b[36micmp\x1b[0m \x1b[34m2606:4700:4700::1111 (2606:4700:4700::1111)\x1b[0m seq=\x1b[33m2\x1b[0m \x1b[32mreply\x1b[0m from=\x1b[34m2606:4700:4700::1111\x1b[0m bytes=\x1b[36m64\x1b[0m ttl=\x1b[35m0\x1b[0m rtt=\x1b[32m4.930ms\x1b[0m icmp_seq=\x1b[33m2\x1b[0m",
+    },
+    Frame {
+        delay_ms: 0,
+        timestamp: Some("2026-05-15 13:40:43.894 +0900"),
+        line: "\x1b[36micmp\x1b[0m \x1b[34m8.8.8.8 (8.8.8.8)\x1b[0m seq=\x1b[33m2\x1b[0m \x1b[32mreply\x1b[0m from=\x1b[34m8.8.8.8\x1b[0m bytes=\x1b[36m64\x1b[0m ttl=\x1b[35m117\x1b[0m rtt=\x1b[32m5.114ms\x1b[0m icmp_seq=\x1b[33m2\x1b[0m",
+    },
+    Frame {
+        delay_ms: 0,
+        timestamp: Some("2026-05-15 13:40:43.893 +0900"),
+        line: "\x1b[36micmp\x1b[0m \x1b[34m1.1.1.1 (1.1.1.1)\x1b[0m seq=\x1b[33m2\x1b[0m \x1b[32mreply\x1b[0m from=\x1b[34m1.1.1.1\x1b[0m bytes=\x1b[36m64\x1b[0m ttl=\x1b[35m58\x1b[0m rtt=\x1b[32m5.767ms\x1b[0m icmp_seq=\x1b[33m2\x1b[0m",
+    },
+    Frame {
+        delay_ms: 1_000,
+        timestamp: Some("2026-05-15 13:40:44.894 +0900"),
+        line: "\x1b[36micmp\x1b[0m \x1b[34m2606:4700:4700::1111 (2606:4700:4700::1111)\x1b[0m seq=\x1b[33m3\x1b[0m \x1b[32mreply\x1b[0m from=\x1b[34m2606:4700:4700::1111\x1b[0m bytes=\x1b[36m64\x1b[0m ttl=\x1b[35m0\x1b[0m rtt=\x1b[32m5.144ms\x1b[0m icmp_seq=\x1b[33m3\x1b[0m",
+    },
+    Frame {
+        delay_ms: 0,
+        timestamp: Some("2026-05-15 13:40:44.895 +0900"),
+        line: "\x1b[36micmp\x1b[0m \x1b[34m2001:4860:4860::8888 (2001:4860:4860::8888)\x1b[0m seq=\x1b[33m3\x1b[0m \x1b[32mreply\x1b[0m from=\x1b[34m2001:4860:4860::8888\x1b[0m bytes=\x1b[36m64\x1b[0m ttl=\x1b[35m0\x1b[0m rtt=\x1b[32m5.263ms\x1b[0m icmp_seq=\x1b[33m3\x1b[0m",
     },
     Frame {
         delay_ms: 0,
@@ -63,7 +98,7 @@ const FRAMES: &[Frame] = &[
     Frame {
         delay_ms: 0,
         timestamp: None,
-        line: "--- \x1b[34m8.8.8.8 (8.8.8.8)\x1b[0m \x1b[1mclockping statistics\x1b[0m ---",
+        line: "--- \x1b[34m2001:4860:4860::8888 (2001:4860:4860::8888)\x1b[0m \x1b[1mclockping statistics\x1b[0m ---",
     },
     Frame {
         delay_ms: 0,
@@ -73,12 +108,37 @@ const FRAMES: &[Frame] = &[
     Frame {
         delay_ms: 0,
         timestamp: None,
-        line: "rtt min/avg/max = \x1b[32m5.457ms\x1b[0m/\x1b[36m6.432ms\x1b[0m/\x1b[35m7.421ms\x1b[0m",
+        line: "rtt min/avg/max = \x1b[32m4.787ms\x1b[0m/\x1b[36m5.797ms\x1b[0m/\x1b[35m7.538ms\x1b[0m",
     },
     Frame {
         delay_ms: 0,
-        timestamp: Some("2026-05-15 12:48:58.054 +0900"),
-        line: "\x1b[36micmp\x1b[0m \x1b[34m1.1.1.1 (1.1.1.1)\x1b[0m seq=\x1b[33m3\x1b[0m \x1b[32mreply\x1b[0m from=\x1b[34m1.1.1.1\x1b[0m bytes=\x1b[36m64\x1b[0m ttl=\x1b[35m58\x1b[0m rtt=\x1b[32m6.077ms\x1b[0m icmp_seq=\x1b[33m3\x1b[0m",
+        timestamp: None,
+        line: "",
+    },
+    Frame {
+        delay_ms: 0,
+        timestamp: None,
+        line: "--- \x1b[34m2606:4700:4700::1111 (2606:4700:4700::1111)\x1b[0m \x1b[1mclockping statistics\x1b[0m ---",
+    },
+    Frame {
+        delay_ms: 0,
+        timestamp: None,
+        line: "4 probes transmitted, 4 replies received, \x1b[32m0\x1b[0m lost, \x1b[32m0.0% loss\x1b[0m",
+    },
+    Frame {
+        delay_ms: 0,
+        timestamp: None,
+        line: "rtt min/avg/max = \x1b[32m4.930ms\x1b[0m/\x1b[36m5.765ms\x1b[0m/\x1b[35m7.546ms\x1b[0m",
+    },
+    Frame {
+        delay_ms: 0,
+        timestamp: Some("2026-05-15 13:40:44.894 +0900"),
+        line: "\x1b[36micmp\x1b[0m \x1b[34m1.1.1.1 (1.1.1.1)\x1b[0m seq=\x1b[33m3\x1b[0m \x1b[32mreply\x1b[0m from=\x1b[34m1.1.1.1\x1b[0m bytes=\x1b[36m64\x1b[0m ttl=\x1b[35m58\x1b[0m rtt=\x1b[32m6.284ms\x1b[0m icmp_seq=\x1b[33m3\x1b[0m",
+    },
+    Frame {
+        delay_ms: 0,
+        timestamp: Some("2026-05-15 13:40:44.895 +0900"),
+        line: "\x1b[36micmp\x1b[0m \x1b[34m8.8.8.8 (8.8.8.8)\x1b[0m seq=\x1b[33m3\x1b[0m \x1b[32mreply\x1b[0m from=\x1b[34m8.8.8.8\x1b[0m bytes=\x1b[36m64\x1b[0m ttl=\x1b[35m117\x1b[0m rtt=\x1b[32m6.325ms\x1b[0m icmp_seq=\x1b[33m3\x1b[0m",
     },
     Frame {
         delay_ms: 0,
@@ -98,7 +158,27 @@ const FRAMES: &[Frame] = &[
     Frame {
         delay_ms: 0,
         timestamp: None,
-        line: "rtt min/avg/max = \x1b[32m6.077ms\x1b[0m/\x1b[36m6.629ms\x1b[0m/\x1b[35m7.440ms\x1b[0m",
+        line: "rtt min/avg/max = \x1b[32m5.767ms\x1b[0m/\x1b[36m6.706ms\x1b[0m/\x1b[35m7.914ms\x1b[0m",
+    },
+    Frame {
+        delay_ms: 0,
+        timestamp: None,
+        line: "",
+    },
+    Frame {
+        delay_ms: 0,
+        timestamp: None,
+        line: "--- \x1b[34m8.8.8.8 (8.8.8.8)\x1b[0m \x1b[1mclockping statistics\x1b[0m ---",
+    },
+    Frame {
+        delay_ms: 0,
+        timestamp: None,
+        line: "4 probes transmitted, 4 replies received, \x1b[32m0\x1b[0m lost, \x1b[32m0.0% loss\x1b[0m",
+    },
+    Frame {
+        delay_ms: 0,
+        timestamp: None,
+        line: "rtt min/avg/max = \x1b[32m5.114ms\x1b[0m/\x1b[36m6.260ms\x1b[0m/\x1b[35m7.841ms\x1b[0m",
     },
 ];
 

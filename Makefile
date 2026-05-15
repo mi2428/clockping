@@ -32,7 +32,7 @@ INSTALL_BINDIR ?= $(INSTALL_PREFIX)/bin
 # Demo
 VHS_TAPE             ?= $(VHSDIR)/$(APP).tape
 VHS_OUTPUT           ?= screencast.gif
-VHS_DEMO_COMMAND     ?= $(APP) --out.colored icmp -c 4 1.1.1.1 8.8.8.8
+VHS_DEMO_COMMAND     ?= $(APP) icmp -c 4 2001:4860:4860::8888 8.8.8.8 2606:4700:4700::1111 1.1.1.1
 VHS_DEMO_DELAY_SCALE ?= 1
 
 # Release
@@ -153,7 +153,7 @@ vhs: ## Record the README live CUI demo GIF with VHS
 		'Set Theme "GitHub Dark"' \
 		'Set FontSize 16' \
 		'Set Width 1664' \
-		'Set Height 468' \
+		'Set Height 749' \
 		'Set Padding 14' \
 		'Set Framerate 24' \
 		'Set PlaybackSpeed 1.0' \
@@ -163,7 +163,7 @@ vhs: ## Record the README live CUI demo GIF with VHS
 		'Type "$(VHS_DEMO_COMMAND)"' \
 		'Sleep 500ms' \
 		'Enter' \
-		'Wait+Screen@30s /6.629ms/' \
+		'Wait+Screen@30s /6.260ms/' \
 		'Sleep 2s' \
 		> "$(VHS_TAPE)"
 	@rm -f "$(VHS_OUTPUT)"
