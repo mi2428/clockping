@@ -92,6 +92,16 @@ const FRAMES: &[Frame] = &[
     },
     Frame {
         delay_ms: 0,
+        timestamp: Some("2026-05-15 13:40:44.894 +0900"),
+        line: "\x1b[36micmp\x1b[0m \x1b[34m1.1.1.1 (1.1.1.1)\x1b[0m seq=\x1b[33m3\x1b[0m \x1b[32mreply\x1b[0m from=\x1b[34m1.1.1.1\x1b[0m bytes=\x1b[36m64\x1b[0m ttl=\x1b[35m58\x1b[0m rtt=\x1b[32m6.284ms\x1b[0m icmp_seq=\x1b[33m3\x1b[0m",
+    },
+    Frame {
+        delay_ms: 0,
+        timestamp: Some("2026-05-15 13:40:44.895 +0900"),
+        line: "\x1b[36micmp\x1b[0m \x1b[34m8.8.8.8 (8.8.8.8)\x1b[0m seq=\x1b[33m3\x1b[0m \x1b[32mreply\x1b[0m from=\x1b[34m8.8.8.8\x1b[0m bytes=\x1b[36m64\x1b[0m ttl=\x1b[35m117\x1b[0m rtt=\x1b[32m6.325ms\x1b[0m icmp_seq=\x1b[33m3\x1b[0m",
+    },
+    Frame {
+        delay_ms: 0,
         timestamp: None,
         line: "",
     },
@@ -118,6 +128,26 @@ const FRAMES: &[Frame] = &[
     Frame {
         delay_ms: 0,
         timestamp: None,
+        line: "--- \x1b[34m8.8.8.8 (8.8.8.8)\x1b[0m \x1b[1mclockping statistics\x1b[0m ---",
+    },
+    Frame {
+        delay_ms: 0,
+        timestamp: None,
+        line: "4 probes transmitted, 4 replies received, \x1b[32m0\x1b[0m lost, \x1b[32m0.0% loss\x1b[0m",
+    },
+    Frame {
+        delay_ms: 0,
+        timestamp: None,
+        line: "rtt min/avg/max = \x1b[32m5.114ms\x1b[0m/\x1b[36m6.260ms\x1b[0m/\x1b[35m7.841ms\x1b[0m",
+    },
+    Frame {
+        delay_ms: 0,
+        timestamp: None,
+        line: "",
+    },
+    Frame {
+        delay_ms: 0,
+        timestamp: None,
         line: "--- \x1b[34m2606:4700:4700::1111 (2606:4700:4700::1111)\x1b[0m \x1b[1mclockping statistics\x1b[0m ---",
     },
     Frame {
@@ -129,16 +159,6 @@ const FRAMES: &[Frame] = &[
         delay_ms: 0,
         timestamp: None,
         line: "rtt min/avg/max = \x1b[32m4.930ms\x1b[0m/\x1b[36m5.765ms\x1b[0m/\x1b[35m7.546ms\x1b[0m",
-    },
-    Frame {
-        delay_ms: 0,
-        timestamp: Some("2026-05-15 13:40:44.894 +0900"),
-        line: "\x1b[36micmp\x1b[0m \x1b[34m1.1.1.1 (1.1.1.1)\x1b[0m seq=\x1b[33m3\x1b[0m \x1b[32mreply\x1b[0m from=\x1b[34m1.1.1.1\x1b[0m bytes=\x1b[36m64\x1b[0m ttl=\x1b[35m58\x1b[0m rtt=\x1b[32m6.284ms\x1b[0m icmp_seq=\x1b[33m3\x1b[0m",
-    },
-    Frame {
-        delay_ms: 0,
-        timestamp: Some("2026-05-15 13:40:44.895 +0900"),
-        line: "\x1b[36micmp\x1b[0m \x1b[34m8.8.8.8 (8.8.8.8)\x1b[0m seq=\x1b[33m3\x1b[0m \x1b[32mreply\x1b[0m from=\x1b[34m8.8.8.8\x1b[0m bytes=\x1b[36m64\x1b[0m ttl=\x1b[35m117\x1b[0m rtt=\x1b[32m6.325ms\x1b[0m icmp_seq=\x1b[33m3\x1b[0m",
     },
     Frame {
         delay_ms: 0,
@@ -159,26 +179,6 @@ const FRAMES: &[Frame] = &[
         delay_ms: 0,
         timestamp: None,
         line: "rtt min/avg/max = \x1b[32m5.767ms\x1b[0m/\x1b[36m6.706ms\x1b[0m/\x1b[35m7.914ms\x1b[0m",
-    },
-    Frame {
-        delay_ms: 0,
-        timestamp: None,
-        line: "",
-    },
-    Frame {
-        delay_ms: 0,
-        timestamp: None,
-        line: "--- \x1b[34m8.8.8.8 (8.8.8.8)\x1b[0m \x1b[1mclockping statistics\x1b[0m ---",
-    },
-    Frame {
-        delay_ms: 0,
-        timestamp: None,
-        line: "4 probes transmitted, 4 replies received, \x1b[32m0\x1b[0m lost, \x1b[32m0.0% loss\x1b[0m",
-    },
-    Frame {
-        delay_ms: 0,
-        timestamp: None,
-        line: "rtt min/avg/max = \x1b[32m5.114ms\x1b[0m/\x1b[36m6.260ms\x1b[0m/\x1b[35m7.841ms\x1b[0m",
     },
 ];
 

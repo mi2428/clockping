@@ -180,7 +180,6 @@ pub async fn run_probe_loop<P: Prober + Send>(
     }
 
     summary.finalize();
-    output.print_summary(&summary, quiet)?;
     Ok(summary)
 }
 
