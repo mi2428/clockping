@@ -63,6 +63,14 @@ pub fn spawn_tcp_acceptor(accepts: usize) -> String {
 }
 
 pub fn spawn_http_responder(accepts: usize) -> String {
+    spawn_http_responder_with_delay(accepts, Duration::ZERO)
+}
+
+pub fn spawn_delayed_http_responder(accepts: usize, delay: Duration) -> String {
+    spawn_http_responder_with_delay(accepts, delay)
+}
+
+fn spawn_http_responder_with_delay(accepts: usize, delay: Duration) -> String {
     let listener = TcpListener::bind("127.0.0.1:0").expect("failed to bind HTTP responder");
     let addr = listener
         .local_addr()
@@ -74,6 +82,7 @@ pub fn spawn_http_responder(accepts: usize) -> String {
             };
             let mut buffer = [0_u8; 1024];
             let _ = io::Read::read(&mut stream, &mut buffer);
+            thread::sleep(delay);
             let _ = io::Write::write_all(
                 &mut stream,
                 b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",

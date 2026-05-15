@@ -231,19 +231,28 @@ where
     P: Prober + Send + 'static,
 {
     let mut tasks = JoinSet::new();
-    for prober in probers {
-        tasks.spawn(run_probe_loop(
-            prober,
-            config,
-            output.clone(),
-            quiet,
-            metrics.clone(),
-        ));
+    for (index, prober) in probers.into_iter().enumerate() {
+        let task_output = output.clone();
+        let task_metrics = metrics.clone();
+        tasks.spawn(async move {
+            run_probe_loop(prober, config, task_output, quiet, task_metrics)
+                .await
+                .map(|summary| (index, summary))
+        });
     }
 
     let mut summaries = Vec::new();
     while let Some(result) = tasks.join_next().await {
         summaries.push(result??);
+    }
+
+    summaries.sort_by_key(|(index, _)| *index);
+    let summaries = summaries
+        .into_iter()
+        .map(|(_, summary)| summary)
+        .collect::<Vec<_>>();
+    for summary in &summaries {
+        output.print_summary(summary, quiet)?;
     }
     Ok(summaries)
 }

@@ -74,6 +74,55 @@ fn http_ipv4_flag_probes_ipv4_target() {
 }
 
 #[test]
+fn summaries_are_printed_after_all_parallel_target_events() {
+    let fast = spawn_http_responder(1);
+    let slow = spawn_delayed_http_responder(1, Duration::from_millis(150));
+    let fast_url = format!("http://{fast}/");
+    let slow_url = format!("http://{slow}/");
+
+    let output = run_clockping(&[
+        "--ts.preset",
+        "none",
+        "http",
+        "-c",
+        "1",
+        "-W",
+        "2",
+        &fast_url,
+        &slow_url,
+    ]);
+
+    let first_stats = output
+        .find("clockping statistics")
+        .expect("missing summary output");
+    let fast_reply = output
+        .find(&format!("http {fast_url} seq=0 reply"))
+        .expect("missing fast target reply");
+    let slow_reply = output
+        .find(&format!("http {slow_url} seq=0 reply"))
+        .expect("missing slow target reply");
+
+    assert!(
+        fast_reply < first_stats && slow_reply < first_stats,
+        "all target events should be printed before the first summary\n{output}"
+    );
+    assert!(
+        !output[first_stats..].contains(" seq="),
+        "summary output should not be followed by more probe event lines\n{output}"
+    );
+    let fast_summary = output
+        .find(&format!("--- {fast_url} clockping statistics ---"))
+        .expect("missing fast target summary");
+    let slow_summary = output
+        .find(&format!("--- {slow_url} clockping statistics ---"))
+        .expect("missing slow target summary");
+    assert!(
+        fast_summary < slow_summary,
+        "summaries should keep input target order\n{output}"
+    );
+}
+
+#[test]
 fn broken_stdout_pipe_exits_successfully() {
     let target = spawn_tcp_acceptor(1000);
     let bin = clockping_bin();
