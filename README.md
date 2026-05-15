@@ -2,6 +2,8 @@
 
 A multi-protocol, multi-target pinger for watching hosts go dark.
 
+[![](https://github.com/mi2428/clockping/blob/main/screencast.gif?raw=true)](https://github.com/mi2428/clockping/blob/main/screencast.gif)
+
 ## Installation
 
 ### macOS (Homebrew)
@@ -15,10 +17,23 @@ $ brew install clockping
 
 ### Build from source
 
+Install Rust and Cargo first, then build and install the binary with `make install`.
+By default, the binary is installed to `~/.local/bin/clockping`.
+Set `INSTALL_BINDIR` if you want to install it somewhere else.
+
 ```console
-$ make install               # install the binary only
-$ make install COMPLETION=1  # install the binary and shell completions
+$ git clone https://github.com/mi2428/clockping
+$ make -C clockping install
 ```
+
+>[!TIP]
+> Prebuilt binaries are also available from GitHub Releases for macOS and Linux, with amd64 and arm64 builds for each platform.
+> Pick the asset that matches your machine, make it executable, and place it on your `PATH`.
+>
+> ```console
+> $ curl -L -o clockping https://github.com/mi2428/clockping/releases/download/v0.9.0/clockping-v0.9.0-darwin-arm64
+> $ chmod +x ./clockping
+> ```
 
 ## Usage
 
@@ -66,10 +81,9 @@ Metrics Options:
 ```
 
 Shell completions for bash, zsh, and fish are tracked in `completions/`.
-Install them together with the binary by passing `COMPLETION=1`, or print a script directly with the `completion` subcommand.
+Print a script directly with the `completion` subcommand.
 
 ```console
-$ make install COMPLETION=1
 $ clockping completion bash  # Print a script directly
 $ clockping completion zsh
 $ clockping completion fish
@@ -332,13 +346,64 @@ Metrics Options:
 
 ## Development
 
+```console
+$ make
+
+Development
+  build                      Build the host binary into bin/
+  install                    Build and install the host binary into INSTALL_BINDIR
+  fmt                        Format Rust sources. Use CHECK_ONLY=1 to check without writing
+  lint                       Run clippy with warnings treated as errors
+  doc                        Build rustdoc with warnings treated as errors
+  test                       Run unit tests
+  check                      Run formatting, lint, rustdoc, and tests
+  clean                      Remove local build artifacts
+
+Demo
+  vhs                        Record the README live CUI demo GIF with VHS
+
+Distribution
+  release                    Build dist, publish a GitHub release, and update Homebrew. Requires TAG=vX.Y.Z
+  dist                       Build release binaries into dist/. Use OS=darwin,linux and ARCH=amd64,arm64
+  dist-smoke                 Smoke-test Linux dist binaries in a Debian container
+  checksums                  Write SHA-256 checksums for dist artifacts
+
+Help
+  help                       Show this help message
+
+Variables:
+  TAG                        Release tag for make release, for example v0.1.0
+  GIT_REMOTE                 Release git remote, defaults to origin
+  HOMEBREW_TAP               Set to 0 to skip Homebrew tap updates, defaults to 1
+  HOMEBREW_TAP_DIR           Homebrew tap checkout, defaults to ../homebrew-clockping
+  HOMEBREW_TAP_REMOTE        Homebrew tap git remote, defaults to origin
+  HOMEBREW_TAP_SLUG          brew tap slug, defaults to GitHub owner/clockping
+  HOMEBREW_TAP_README_TITLE  Homebrew tap README title, defaults to homebrew-clockping
+  HOMEBREW_DESC              Homebrew formula description
+  HOMEBREW_FORMULA_CLASS     Homebrew Ruby class, defaults to Clockping
+  OS                         Release OS list for make dist, defaults to darwin,linux
+  ARCH                       Release arch list for make dist, defaults to amd64,arm64
+  INSTALL_BINDIR             Install directory, defaults to /Users/teo/.local/bin
+  VHS                        VHS command for make vhs, defaults to vhs
+  VHS_DEMO_COMMAND           Demo command for make vhs
+  VHS_DEMO_DELAY_SCALE       Demo scan delay scale for make vhs, defaults to 1
+
+Examples:
+  make fmt CHECK_ONLY=1                       # Check formatting without writing
+  make check                                  # Run local quality gates
+  make vhs                                    # Record screencast.gif from deterministic demo data
+  make dist OS=darwin,linux ARCH=amd64,arm64  # Build release binaries and checksums
+  make release TAG=v0.1.0                     # Publish a GitHub release and update Homebrew
+```
+
 ### Tests
 
 `make check` runs the local quality gate.
-`make e2e` starts the Docker Compose test network and runs `tests/e2e_test.rs` against real TCP, HTTP, ICMP, and GTP targets, including target-down cases that must keep producing timestamped events.
+The Docker Compose E2E test network can be run directly when real TCP, HTTP, ICMP, and GTP targets are needed, including target-down cases that must keep producing timestamped events.
 
 ```console
-$ make check e2e
+$ make check
+$ docker compose -f docker-compose.test.yml up --build --abort-on-container-exit --exit-code-from sut
 ```
 
 ### Release
@@ -349,19 +414,9 @@ Release workflows are kept as `.yml.disabled` files, so releases are driven from
 $ make release TAG=v1.0.0
 ```
 
-The release target builds `dist/` binaries and checksums, pushes the multi-arch scratch image to GHCR, creates or updates the GitHub Release, and publishes the Homebrew formula.
-It expects `gh` to be authenticated, Docker Buildx to be able to push `linux/amd64,linux/arm64` images, and [`../homebrew-clockping`](https://github.com/mi2428/homebrew-clockping) to be a clean local checkout of the tap repo.
+The release target builds tag-named `dist/` binaries and checksums, creates or updates the GitHub Release, uploads the artifacts, and publishes the Homebrew formula.
+It expects `gh` to be authenticated, Docker to be available for Linux release builds, and [`../homebrew-clockping`](https://github.com/mi2428/homebrew-clockping) to be a clean local checkout of the tap repo.
 Set `HOMEBREW_TAP=0` to skip the Homebrew tap update.
-
-> [!NOTE]
-> If GHCR push fails with `denied: permission_denied: The token provided does not match expected scopes.`, Docker is probably using a saved `ghcr.io` token that lacks package scopes.
-> Refresh `gh` with package scopes, replace Docker's GHCR credentials, and rerun the release.
->
-> ```console
-> $ docker logout ghcr.io
-> $ gh auth refresh -s read:packages,write:packages
-> $ gh auth token | docker login ghcr.io -u username --password-stdin
-> ```
 
 ## License
 
