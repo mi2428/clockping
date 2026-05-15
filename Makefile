@@ -32,7 +32,7 @@ INSTALL_BINDIR ?= $(INSTALL_PREFIX)/bin
 # Demo
 VHS_TAPE             ?= $(VHSDIR)/$(APP).tape
 VHS_OUTPUT           ?= screencast.gif
-VHS_DEMO_COMMAND     ?= $(APP) --out.colored --ts.preset none tcp -i 0.2 -c 6 edge-router:443 api-gateway:443 core-db:5432
+VHS_DEMO_COMMAND     ?= $(APP) --out.colored icmp -c 4 1.1.1.1 8.8.8.8
 VHS_DEMO_DELAY_SCALE ?= 1
 
 # Release
@@ -150,10 +150,10 @@ vhs: ## Record the README live CUI demo GIF with VHS
 		'Require $(APP)' \
 		'' \
 		'Set Shell "bash"' \
-		'Set Theme "Builtin Dark"' \
+		'Set Theme "GitHub Dark"' \
 		'Set FontSize 16' \
 		'Set Width 1664' \
-		'Set Height 936' \
+		'Set Height 468' \
 		'Set Padding 14' \
 		'Set Framerate 24' \
 		'Set PlaybackSpeed 1.0' \
@@ -163,10 +163,8 @@ vhs: ## Record the README live CUI demo GIF with VHS
 		'Type "$(VHS_DEMO_COMMAND)"' \
 		'Sleep 500ms' \
 		'Enter' \
-		'Wait+Screen@30s /status=complete/' \
-		'Sleep 1.2s' \
-		'Ctrl+C' \
-		'Sleep 500ms' \
+		'Wait+Screen@30s /6.629ms/' \
+		'Sleep 2s' \
 		> "$(VHS_TAPE)"
 	@rm -f "$(VHS_OUTPUT)"
 	@env -u NO_COLOR PATH="$(CURDIR)/$(VHSDIR)/bin:$(PATH)" TERM=xterm-truecolor COLORTERM=truecolor "$(VHS)" "$(VHS_TAPE)"

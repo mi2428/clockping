@@ -60,6 +60,7 @@ target/
 /dist/
 /.cargo-linux/
 /.home-linux/
+/.vhs/
 
 # This is an executable crate, so keep Cargo.lock tracked for reproducible builds.
 
