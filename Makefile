@@ -2,6 +2,16 @@ SHELL         := /bin/bash
 .SHELLFLAGS   := -eu -o pipefail -c
 .DEFAULT_GOAL := help
 
+# Project
+APP             := clockping
+PACKAGE_VERSION := $(shell sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)
+
+# Output directories
+BINDIR  := bin
+DISTDIR := dist
+VHSDIR  := .vhs
+
+# Toolchain
 RUSTUP           ?= rustup
 RUSTUP_TOOLCHAIN ?= 1.95.0
 CARGO            ?= $(shell if command -v $(RUSTUP) >/dev/null 2>&1 && $(RUSTUP) which cargo --toolchain $(RUSTUP_TOOLCHAIN) >/dev/null 2>&1; then $(RUSTUP) which cargo --toolchain $(RUSTUP_TOOLCHAIN); else command -v cargo; fi)
@@ -9,42 +19,40 @@ RUSTC            ?= $(shell if command -v $(RUSTUP) >/dev/null 2>&1 && $(RUSTUP)
 RUSTDOC          ?= $(shell if command -v $(RUSTUP) >/dev/null 2>&1 && $(RUSTUP) which rustdoc --toolchain $(RUSTUP_TOOLCHAIN) >/dev/null 2>&1; then $(RUSTUP) which rustdoc --toolchain $(RUSTUP_TOOLCHAIN); else command -v rustdoc; fi)
 RUST_BINDIR      := $(patsubst %/,%,$(dir $(CARGO)))
 CARGO_ENV        := PATH="$(RUST_BINDIR):$(PATH)" RUSTC="$(RUSTC)" RUSTDOC="$(RUSTDOC)"
-RELEASE_MAKE     ?= $(MAKE)
 
+# Commands
 INSTALL ?= install
 DOCKER  ?= docker
-COMPOSE ?= $(shell if $(DOCKER) compose version >/dev/null 2>&1; then printf '%s compose' '$(DOCKER)'; elif command -v docker-compose >/dev/null 2>&1; then command -v docker-compose; else printf '%s compose' '$(DOCKER)'; fi)
-MULTIPASS ?= multipass
-GIT_REMOTE ?= origin
-DOCKER_PLATFORMS ?= linux/amd64,linux/arm64
-HOMEBREW_TAP ?= 1
-HOMEBREW_TAP_DIR ?= ../homebrew-clockping
-HOMEBREW_TAP_REMOTE ?= origin
+VHS     ?= vhs
 
-APP            := clockping
-BINDIR         := bin
-COMPLETION_DIR := completions
-DISTDIR        := dist
-TEST_COMPOSE   := docker-compose.test.yml
+# Install
+INSTALL_PREFIX ?= $(HOME)/.local
+INSTALL_BINDIR ?= $(INSTALL_PREFIX)/bin
 
-INSTALL_PREFIX      ?= $(HOME)/.local
-INSTALL_BINDIR      ?= $(INSTALL_PREFIX)/bin
-BASH_COMPLETION_DIR ?= $(INSTALL_PREFIX)/share/bash-completion/completions
-DETECTED_ZSH_COMPLETION_DIR := $(shell \
-	if command -v zsh >/dev/null 2>&1; then \
-		zsh -fc 'print -rl -- $${fpath[@]}' 2>/dev/null | \
-			while IFS= read -r dir; do \
-				if [ "$${dir%/site-functions}" != "$$dir" ] && [ -d "$$dir" ] && [ -w "$$dir" ]; then \
-					printf '%s\n' "$$dir"; \
-					exit 0; \
-				fi; \
-			done; \
-	fi)
-ZSH_COMPLETION_DIR  ?= $(or $(DETECTED_ZSH_COMPLETION_DIR),$(INSTALL_PREFIX)/share/zsh/site-functions)
-FISH_COMPLETION_DIR ?= $(INSTALL_PREFIX)/share/fish/vendor_completions.d
-OS                  ?= darwin,linux
-ARCH                ?= amd64,arm64
+# Demo
+VHS_TAPE             ?= $(VHSDIR)/$(APP).tape
+VHS_OUTPUT           ?= screencast.gif
+VHS_DEMO_COMMAND     ?= $(APP) --out.colored icmp -c 4 1.1.1.1 8.8.8.8
+VHS_DEMO_DELAY_SCALE ?= 1
 
+# Release
+GIT_REMOTE   ?= origin
+RELEASE_MAKE ?= $(MAKE)
+OS           ?= darwin,linux
+ARCH         ?= amd64,arm64
+DIST_TAG     ?= $(if $(TAG),$(TAG),v$(PACKAGE_VERSION))
+DIST_APP     := $(APP)-$(DIST_TAG)
+
+# Homebrew tap
+HOMEBREW_TAP              ?= 1
+HOMEBREW_TAP_DIR          ?= ../homebrew-$(APP)
+HOMEBREW_TAP_REMOTE       ?= origin
+HOMEBREW_TAP_SLUG         ?=
+HOMEBREW_TAP_README_TITLE ?= homebrew-$(APP)
+HOMEBREW_DESC             ?= A multi-protocol, multi-target pinger for watching hosts go dark
+HOMEBREW_FORMULA_CLASS    ?= $(shell printf '%s' '$(APP)' | awk -F- '{ for (i = 1; i <= NF; i++) printf toupper(substr($$i, 1, 1)) substr($$i, 2) }')
+
+# Release matrix
 DARWIN_ARCHS := amd64 arm64
 LINUX_ARCHS  := amd64 arm64
 RUST_TARGETS := x86_64-apple-darwin aarch64-apple-darwin
@@ -58,19 +66,20 @@ LINUX_amd64_PLATFORM := linux/amd64
 LINUX_amd64_SUFFIX   := linux-amd64
 LINUX_arm64_PLATFORM := linux/arm64
 LINUX_arm64_SUFFIX   := linux-arm64
-LINUX_BUILD_IMAGE    ?= rust:1.95-bookworm
-LINUX_SMOKE_IMAGE    ?= debian:bookworm-slim
-LINUX_CACHE_KEY      := $(shell printf '%s' '$(LINUX_BUILD_IMAGE)' | sed 's/[^A-Za-z0-9_.-]/-/g')
-DOCKER_UID           ?= $(shell id -u)
-DOCKER_GID           ?= $(shell id -g)
-HOST_OS              := $(shell uname -s)
 
-MULTIPASS_NAME       ?= clockping-dev
-MULTIPASS_IMAGE      ?= 24.04
-MULTIPASS_CPUS       ?= 2
-MULTIPASS_MEMORY     ?= 4G
-MULTIPASS_DISK       ?= 20G
-MULTIPASS_SOURCE_DIR ?= clockping
+# Linux release builds
+LINUX_BUILD_IMAGE           ?= rust:1.95-bookworm
+LINUX_SMOKE_IMAGE           ?= debian:bookworm-slim
+LINUX_CACHE_KEY             := $(shell printf '%s' '$(LINUX_BUILD_IMAGE)' | sed 's/[^A-Za-z0-9_.-]/-/g')
+LINUX_OPENSSL_STATIC        ?= 1
+LINUX_PKG_CONFIG_ALL_STATIC ?= 1
+DOCKER_UID                  ?= $(shell id -u)
+DOCKER_GID                  ?= $(shell id -g)
+
+# Host and help
+HOST_OS            := $(shell uname -s)
+HELP_NAME_WIDTH    := 27
+HELP_EXAMPLE_WIDTH := 44
 
 ##@ Development
 
@@ -88,69 +97,6 @@ install: ## Build and install the host binary into INSTALL_BINDIR
 	@mkdir -p "$(INSTALL_BINDIR)"
 	@$(INSTALL) -m 0755 "target/release/$(APP)" "$(INSTALL_BINDIR)/$(APP)"
 	@printf 'Installed %s\n' "$(INSTALL_BINDIR)/$(APP)"
-	@if [ "$(COMPLETION)" = "1" ]; then \
-		$(MAKE) --no-print-directory _completions MODE=install; \
-	fi
-
-.PHONY: completions
-completions: ## Generate shell completions into completions/
-	@$(MAKE) --no-print-directory _completions MODE=generate
-
-.PHONY: _completions
-_completions:
-	@mode="$(MODE)"; \
-	if [ "$(CHECK_ONLY)" = "1" ]; then \
-		mode="check"; \
-	fi; \
-	case "$$mode" in \
-		generate) \
-			mkdir -p "$(COMPLETION_DIR)"; \
-			$(CARGO_ENV) $(CARGO) run --quiet -- completion bash > "$(COMPLETION_DIR)/$(APP).bash"; \
-			$(CARGO_ENV) $(CARGO) run --quiet -- completion zsh > "$(COMPLETION_DIR)/_$(APP)"; \
-			$(CARGO_ENV) $(CARGO) run --quiet -- completion fish > "$(COMPLETION_DIR)/$(APP).fish"; \
-			printf 'Wrote shell completions to %s/\n' "$(COMPLETION_DIR)"; \
-			;; \
-		""|check) \
-			tmp_dir="$$(mktemp -d "$${TMPDIR:-/tmp}/$(APP)-completion.XXXXXX")"; \
-			trap 'rm -rf "$$tmp_dir"' EXIT; \
-			$(CARGO_ENV) $(CARGO) run --quiet -- completion bash > "$$tmp_dir/$(APP).bash"; \
-			$(CARGO_ENV) $(CARGO) run --quiet -- completion zsh > "$$tmp_dir/_$(APP)"; \
-			$(CARGO_ENV) $(CARGO) run --quiet -- completion fish > "$$tmp_dir/$(APP).fish"; \
-			for file in "$(APP).bash" "_$(APP)" "$(APP).fish"; do \
-				if ! cmp -s "$$tmp_dir/$$file" "$(COMPLETION_DIR)/$$file"; then \
-					printf 'Completion %s is stale; run make completions\n' "$$file" >&2; \
-					exit 1; \
-				fi; \
-			done; \
-			bash -n "$(COMPLETION_DIR)/$(APP).bash"; \
-			if command -v zsh >/dev/null 2>&1; then \
-				zsh -n "$(COMPLETION_DIR)/_$(APP)"; \
-			else \
-				printf 'Skipping zsh completion check; zsh not found\n'; \
-			fi; \
-			if command -v fish >/dev/null 2>&1; then \
-				fish -n "$(COMPLETION_DIR)/$(APP).fish"; \
-			else \
-				printf 'Skipping fish completion check; fish not found\n'; \
-			fi; \
-			;; \
-		install) \
-			mkdir -p "$(BASH_COMPLETION_DIR)" "$(ZSH_COMPLETION_DIR)" "$(FISH_COMPLETION_DIR)"; \
-			$(INSTALL) -m 0644 "$(COMPLETION_DIR)/$(APP).bash" "$(BASH_COMPLETION_DIR)/$(APP)"; \
-			$(INSTALL) -m 0644 "$(COMPLETION_DIR)/_$(APP)" "$(ZSH_COMPLETION_DIR)/_$(APP)"; \
-			$(INSTALL) -m 0644 "$(COMPLETION_DIR)/$(APP).fish" "$(FISH_COMPLETION_DIR)/$(APP).fish"; \
-			printf 'Installed bash completion to %s/%s\n' "$(BASH_COMPLETION_DIR)" "$(APP)"; \
-			printf 'Installed zsh completion to %s/_%s\n' "$(ZSH_COMPLETION_DIR)" "$(APP)"; \
-			printf 'Installed fish completion to %s/%s.fish\n' "$(FISH_COMPLETION_DIR)" "$(APP)"; \
-			if command -v zsh >/dev/null 2>&1 && ! zsh -fc 'target=$$1; for dir in $${fpath[@]}; do [[ "$$dir" == "$$target" ]] && exit 0; done; exit 1' -- "$(ZSH_COMPLETION_DIR)"; then \
-				printf 'Note: zsh completion dir is not in fpath; add before compinit: fpath=(%s $$fpath)\n' "$(ZSH_COMPLETION_DIR)"; \
-			fi; \
-			;; \
-		*) \
-			echo "Unsupported MODE '$$mode'. Supported values: check, generate, install" >&2; \
-			exit 1; \
-			;; \
-	esac
 
 .PHONY: fmt
 fmt: ## Format Rust sources. Use CHECK_ONLY=1 to check without writing
@@ -172,84 +118,293 @@ doc: ## Build rustdoc with warnings treated as errors
 test: ## Run unit tests
 	@$(CARGO_ENV) $(CARGO) test
 
-.PHONY: e2e
-e2e: ## Run Docker Compose E2E tests
-	@trap '$(COMPOSE) -f $(TEST_COMPOSE) down --remove-orphans >/dev/null 2>&1 || true' EXIT; \
-	$(COMPOSE) -f $(TEST_COMPOSE) up --build --abort-on-container-exit --exit-code-from sut
-
-.PHONY: integration
-integration: e2e ## Alias for e2e
-
 .PHONY: check
-check: ## Run formatting, lint, rustdoc, tests, and completion checks
+check: ## Run formatting, lint, rustdoc, and tests
 	@$(MAKE) --no-print-directory fmt CHECK_ONLY=1
 	@$(MAKE) --no-print-directory lint
 	@$(MAKE) --no-print-directory doc
 	@$(MAKE) --no-print-directory test
-	@$(MAKE) --no-print-directory _completions CHECK_ONLY=1
-
-.PHONY: multipass
-multipass: ## Launch a Multipass VM and copy the source tree for manual Linux testing
-	@command -v $(MULTIPASS) >/dev/null 2>&1 || { \
-		echo "Multipass is required for this target" >&2; \
-		exit 1; \
-	}
-	@if $(MULTIPASS) info "$(MULTIPASS_NAME)" >/dev/null 2>&1; then \
-		printf 'Starting existing Multipass VM %s\n' "$(MULTIPASS_NAME)"; \
-		$(MULTIPASS) start "$(MULTIPASS_NAME)" >/dev/null; \
-	else \
-		printf 'Launching Multipass VM %s from %s\n' "$(MULTIPASS_NAME)" "$(MULTIPASS_IMAGE)"; \
-		$(MULTIPASS) launch "$(MULTIPASS_IMAGE)" \
-			--name "$(MULTIPASS_NAME)" \
-			--cpus "$(MULTIPASS_CPUS)" \
-			--memory "$(MULTIPASS_MEMORY)" \
-			--disk "$(MULTIPASS_DISK)"; \
-	fi
-	@archive="$$(mktemp "$${TMPDIR:-/tmp}/$(APP)-multipass.XXXXXX.tar.gz")"; \
-	trap 'rm -f "$$archive"' EXIT; \
-	printf 'Packing source tree for %s\n' "$(MULTIPASS_NAME)"; \
-	tar_metadata_flags=(); \
-	for flag in --no-xattrs --no-mac-metadata --disable-copyfile; do \
-		if tar "$$flag" -cf /dev/null --files-from /dev/null >/dev/null 2>&1; then \
-			tar_metadata_flags+=("$$flag"); \
-		fi; \
-	done; \
-	COPYFILE_DISABLE=1 tar "$${tar_metadata_flags[@]}" \
-		--exclude './target' \
-		--exclude './dist' \
-		--exclude './bin' \
-		--exclude './.cargo-linux' \
-		--exclude './.home-linux' \
-		--exclude './.DS_Store' \
-		-czf "$$archive" .; \
-	$(MULTIPASS) exec "$(MULTIPASS_NAME)" -- rm -rf "/home/ubuntu/$(MULTIPASS_SOURCE_DIR)"; \
-	$(MULTIPASS) exec "$(MULTIPASS_NAME)" -- mkdir -p "/home/ubuntu/$(MULTIPASS_SOURCE_DIR)"; \
-	$(MULTIPASS) transfer "$$archive" "$(MULTIPASS_NAME):/tmp/$(APP)-source.tar.gz"; \
-	$(MULTIPASS) exec "$(MULTIPASS_NAME)" -- tar -xzf "/tmp/$(APP)-source.tar.gz" -C "/home/ubuntu/$(MULTIPASS_SOURCE_DIR)"; \
-	$(MULTIPASS) exec "$(MULTIPASS_NAME)" -- chown -R ubuntu:ubuntu "/home/ubuntu/$(MULTIPASS_SOURCE_DIR)"; \
-	printf '\nMultipass VM is ready.\n'; \
-	printf '\nRun these commands to build inside the VM:\n'; \
-	printf '  1) %s\n' "$(MULTIPASS) shell $(MULTIPASS_NAME)"; \
-	printf '  2) %s\n' "cd ~/$(MULTIPASS_SOURCE_DIR)"; \
-	printf '  3) %s\n' "sudo apt-get update && sudo apt-get install -y --no-install-recommends build-essential ca-certificates curl make pkg-config"; \
-	printf '  4) %s\n' "command -v cargo >/dev/null || curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y"; \
-	printf '  5) %s\n' "source \"\$$HOME/.cargo/env\""; \
-	printf '  6) %s\n' "make build"; \
-	printf '  7) %s\n' "./bin/clockping --version"
 
 .PHONY: clean
 clean: ## Remove local build artifacts
-	@rm -rf $(BINDIR) $(DISTDIR) .cargo-linux .home-linux
+	@rm -rf $(BINDIR) $(DISTDIR) $(VHSDIR) .cargo-linux .home-linux
 	@$(CARGO_ENV) $(CARGO) clean
+
+##@ Demo
+
+.PHONY: vhs
+vhs: ## Record the README live CUI demo GIF with VHS
+	@command -v "$(VHS)" >/dev/null 2>&1 || { \
+		echo "vhs is required to record $(VHS_OUTPUT): https://github.com/charmbracelet/vhs" >&2; \
+		exit 1; \
+	}
+	@$(CARGO_ENV) $(CARGO) build --example cui_demo
+	@mkdir -p "$(VHSDIR)/bin" "$$(dirname "$(VHS_OUTPUT)")"
+	@printf '%s\n' \
+		'#!/bin/sh' \
+		'CLOCKPING_DEMO_DELAY_SCALE="$(VHS_DEMO_DELAY_SCALE)" exec "$(CURDIR)/target/debug/examples/cui_demo" "$$@"' \
+		> "$(VHSDIR)/bin/$(APP)"
+	@chmod +x "$(VHSDIR)/bin/$(APP)"
+	@printf '%s\n' \
+		'Output $(VHS_OUTPUT)' \
+		'Require $(APP)' \
+		'' \
+		'Set Shell "bash"' \
+		'Set Theme "GitHub Dark"' \
+		'Set FontSize 16' \
+		'Set Width 1664' \
+		'Set Height 468' \
+		'Set Padding 14' \
+		'Set Framerate 24' \
+		'Set PlaybackSpeed 1.0' \
+		'Set TypingSpeed 45ms' \
+		'Set CursorBlink false' \
+		'' \
+		'Type "$(VHS_DEMO_COMMAND)"' \
+		'Sleep 500ms' \
+		'Enter' \
+		'Wait+Screen@30s /6.629ms/' \
+		'Sleep 2s' \
+		> "$(VHS_TAPE)"
+	@rm -f "$(VHS_OUTPUT)"
+	@env -u NO_COLOR PATH="$(CURDIR)/$(VHSDIR)/bin:$(PATH)" TERM=xterm-truecolor COLORTERM=truecolor "$(VHS)" "$(VHS_TAPE)"
+	@test -f "$(VHS_OUTPUT)" || { \
+		echo "VHS completed but $(VHS_OUTPUT) was not written" >&2; \
+		exit 1; \
+	}
+	@rm -rf "$(VHSDIR)"
+	@printf 'Wrote %s\n' "$(VHS_OUTPUT)"
+
+define RELEASE_SCRIPT
+# shellcheck shell=bash
+set -Eeuo pipefail
+
+fail() {
+  echo "release: $$*" >&2
+  exit 1
+}
+
+run() {
+  printf '+'
+  printf ' %q' "$$@"
+  printf '\n'
+  "$$@"
+}
+
+need() {
+  command -v "$$1" >/dev/null 2>&1 || fail "$$1 is required for release"
+}
+
+value_at_ref() {
+  git show "$$1:Cargo.toml" | sed -n "s/^$$2 = \"\\(.*\\)\"/\\1/p" | head -n 1
+}
+
+sha256_file() {
+  shasum -a 256 "$$1" | awk '{print $$1}'
+}
+
+clean_git_dir() {
+  local dir="$$1" label="$$2" status
+
+  git -C "$$dir" rev-parse --is-inside-work-tree >/dev/null 2>&1 || fail "$$label repo not found at $$dir"
+
+  status="$$(git -C "$$dir" status --porcelain)"
+  if [[ -n "$$status" ]]; then
+    git -C "$$dir" status --short >&2
+    fail "$$label must be clean before release"
+  fi
+}
+
+github_repo() {
+  local repo="$${GH_REPO:-$${GITHUB_REPOSITORY:-}}" url
+
+  if [[ -z "$$repo" ]]; then
+    url="$$(git config --get "remote.$$GIT_REMOTE.url" || true)"
+    case "$$url" in
+      git@github.com:*) repo="$${url#git@github.com:}" ;;
+      https://github.com/*) repo="$${url#https://github.com/}" ;;
+      ssh://git@github.com/*) repo="$${url#ssh://git@github.com/}" ;;
+      *) fail "could not infer GitHub repository from remote $$GIT_REMOTE; set GH_REPO=owner/repo" ;;
+    esac
+  fi
+
+  repo="$${repo#https://github.com/}"
+  repo="$${repo%.git}"
+  [[ "$$repo" == */* ]] || fail "GitHub repository must look like owner/repo, got $$repo"
+  printf '%s\n' "$$repo"
+}
+
+cleanup() {
+  local status=$$?
+
+  if [[ "$$created_tag" == 1 && "$$pushed_tag" != 1 ]]; then
+    git tag -d "$$TAG" >/dev/null 2>&1 || true
+  fi
+
+  exit "$$status"
+}
+
+semver='^v[0-9]+[.][0-9]+[.][0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?([+][0-9A-Za-z][0-9A-Za-z.-]*)?$$'
+created_tag=0
+pushed_tag=0
+
+[[ -n "$$TAG" ]] || fail "TAG is required, for example: make release TAG=v0.1.0"
+[[ "$$TAG" =~ $$semver ]] || fail "TAG must look like vMAJOR.MINOR.PATCH"
+
+cd "$$(git rev-parse --show-toplevel)"
+clean_git_dir . "working tree"
+need git
+need gh
+need shasum
+
+repo="$$(github_repo)"
+version="$${TAG#v}"
+tap_slug="$${HOMEBREW_TAP_SLUG:-$${repo%%/*}/$$APP}"
+tap_readme_title="$${HOMEBREW_TAP_README_TITLE:-homebrew-$$APP}"
+remote_line="$$(git ls-remote --tags "$$GIT_REMOTE" "refs/tags/$$TAG" | sed -n '1p')"
+remote_oid="$${remote_line%%[[:space:]]*}"
+trap cleanup EXIT
+
+if git rev-parse -q --verify "refs/tags/$$TAG" >/dev/null; then
+  local_oid="$$(git rev-parse "refs/tags/$$TAG")"
+  [[ -z "$$remote_oid" || "$$remote_oid" == "$$local_oid" ]] || \
+    fail "local tag $$TAG does not match $$GIT_REMOTE/tags/$$TAG"
+  printf 'Using existing tag %s at %s\n' "$$TAG" "$$(git rev-list -n 1 "$$TAG")"
+elif [[ -n "$$remote_oid" ]]; then
+  run git fetch "$$GIT_REMOTE" "refs/tags/$$TAG:refs/tags/$$TAG"
+  printf 'Using fetched tag %s at %s\n' "$$TAG" "$$(git rev-list -n 1 "$$TAG")"
+else
+  run git tag "$$TAG"
+  created_tag=1
+  printf 'Created tag %s at %s\n' "$$TAG" "$$(git rev-parse HEAD)"
+fi
+
+release_commit="$$(git rev-list -n 1 "$$TAG")"
+head_commit="$$(git rev-parse HEAD)"
+[[ "$$release_commit" == "$$head_commit" ]] || \
+  fail "$$TAG points to $$release_commit, but HEAD is $$head_commit; checkout the release commit first"
+
+[[ "$$(value_at_ref "refs/tags/$$TAG" name)" == "$$APP" ]] || fail "Cargo.toml package name does not match $$APP"
+[[ "$$(value_at_ref "refs/tags/$$TAG" version)" == "$$version" ]] || fail "Cargo.toml version does not match $$TAG"
+
+run "$$RELEASE_MAKE" dist TAG="$$TAG" OS="$$OS" ARCH="$$ARCH"
+run git push "$$GIT_REMOTE" "refs/tags/$$TAG"
+pushed_tag=1
+
+shopt -s nullglob
+assets=("$$DISTDIR"/*)
+shopt -u nullglob
+(($${#assets[@]} > 0)) || fail "no release assets found in $$DISTDIR"
+
+release_flags=()
+[[ "$$TAG" == *-* ]] && release_flags=(--prerelease)
+
+if gh release view "$$TAG" --repo "$$repo" >/dev/null 2>&1; then
+  run gh release upload "$$TAG" "$${assets[@]}" --clobber --repo "$$repo"
+else
+  run gh release create "$$TAG" \
+    --repo "$$repo" \
+    --target "$$release_commit" \
+    --title "$$TAG" \
+    --generate-notes \
+    "$${release_flags[@]}" \
+    "$${assets[@]}"
+fi
+
+case "$$HOMEBREW_TAP" in
+  0|false|FALSE|no|NO)
+    printf 'Skipping Homebrew tap update because HOMEBREW_TAP=0\n'
+    ;;
+  *)
+    dist_app="$$APP-$$TAG"
+    darwin_amd64_bin="$$DISTDIR/$$dist_app-darwin-amd64"
+    darwin_arm64_bin="$$DISTDIR/$$dist_app-darwin-arm64"
+    formula_dir="$$HOMEBREW_TAP_DIR/Formula"
+    formula_file="$$formula_dir/$$APP.rb"
+
+    [[ -f "$$darwin_amd64_bin" ]] || fail "missing Homebrew artifact $$darwin_amd64_bin"
+    [[ -f "$$darwin_arm64_bin" ]] || fail "missing Homebrew artifact $$darwin_arm64_bin"
+    clean_git_dir "$$HOMEBREW_TAP_DIR" "Homebrew tap working tree"
+
+    mkdir -p "$$formula_dir"
+    darwin_amd64_sha="$$(sha256_file "$$darwin_amd64_bin")"
+    darwin_arm64_sha="$$(sha256_file "$$darwin_arm64_bin")"
+
+    printf '%s\n' \
+      "# $$tap_readme_title" \
+      '' \
+      "Homebrew tap for \`$$APP\`." \
+      '' \
+      '```console' \
+      "\$$ brew tap $$tap_slug" \
+      "\$$ brew install $$APP" \
+      '```' \
+      > "$$HOMEBREW_TAP_DIR/README.md"
+
+    printf '%s\n' \
+      '# typed: false' \
+      '# frozen_string_literal: true' \
+      '' \
+      "class $$HOMEBREW_FORMULA_CLASS < Formula" \
+      "  desc \"$$HOMEBREW_DESC\"" \
+      "  homepage \"https://github.com/$$repo\"" \
+      "  version \"$$version\"" \
+      '  license "MIT"' \
+      '  depends_on :macos' \
+      '' \
+      '  on_macos do' \
+      '    on_arm do' \
+      "      url \"https://github.com/$$repo/releases/download/$$TAG/$$APP-$$TAG-darwin-arm64\"," \
+      '          using: :nounzip' \
+      "      sha256 \"$$darwin_arm64_sha\"" \
+      '    end' \
+      '' \
+      '    on_intel do' \
+      "      url \"https://github.com/$$repo/releases/download/$$TAG/$$APP-$$TAG-darwin-amd64\"," \
+      '          using: :nounzip' \
+      "      sha256 \"$$darwin_amd64_sha\"" \
+      '    end' \
+      '  end' \
+      '' \
+      '  def install' \
+      "    bin.install Dir[\"$$APP-v#{version}-darwin-*\"].first => \"$$APP\"" \
+      "    chmod 0755, bin/\"$$APP\"" \
+      '  end' \
+      '' \
+      '  test do' \
+      "    assert_match \"$$APP #{version}\", shell_output(\"#{bin}/$$APP --version\")" \
+      "    assert_match \"Usage:\", shell_output(\"#{bin}/$$APP --help\")" \
+      '  end' \
+      'end' \
+      > "$$formula_file"
+
+    if command -v brew >/dev/null 2>&1; then
+      run env HOMEBREW_DEVELOPER=1 brew style \
+        --except-cops FormulaAudit/Homepage,FormulaAudit/Desc,FormulaAuditStrict \
+        --fix "$$formula_file" || true
+    else
+      printf 'Skipping Homebrew style; brew not found\n'
+    fi
+
+    run git -C "$$HOMEBREW_TAP_DIR" add README.md "Formula/$$APP.rb"
+    if git -C "$$HOMEBREW_TAP_DIR" diff --cached --quiet; then
+      printf 'Homebrew formula is already up to date for %s\n' "$$TAG"
+    else
+      run git -C "$$HOMEBREW_TAP_DIR" commit -m "$$APP $$version"
+      run git -C "$$HOMEBREW_TAP_DIR" push "$$HOMEBREW_TAP_REMOTE" HEAD
+    fi
+    ;;
+esac
+
+printf 'Published %s from local release artifacts and updated Homebrew.\n' "$$TAG"
+endef
+export RELEASE_SCRIPT
 
 ##@ Distribution
 
 .PHONY: release
-release: ## Build dist, push multi-arch Docker image, publish GitHub release, and update Homebrew. Requires TAG=vX.Y.Z
-	@TAG="$(TAG)" GIT_REMOTE="$(GIT_REMOTE)" DOCKER="$(DOCKER)" DOCKER_PLATFORMS="$(DOCKER_PLATFORMS)" OS="$(OS)" ARCH="$(ARCH)" DISTDIR="$(DISTDIR)" HOMEBREW_TAP="$(HOMEBREW_TAP)" HOMEBREW_TAP_DIR="$(HOMEBREW_TAP_DIR)" HOMEBREW_TAP_REMOTE="$(HOMEBREW_TAP_REMOTE)" MAKE="$(RELEASE_MAKE)" CARGO="$(CARGO)" RUSTC="$(RUSTC)" RUSTDOC="$(RUSTDOC)" PATH="$(RUST_BINDIR):$(PATH)" bash scripts/release.sh
-
-.PHONY: releae
-releae: release
+release: ## Build dist, publish a GitHub release, and update Homebrew. Requires TAG=vX.Y.Z
+	@APP="$(APP)" TAG="$(TAG)" GIT_REMOTE="$(GIT_REMOTE)" DISTDIR="$(DISTDIR)" OS="$(OS)" ARCH="$(ARCH)" HOMEBREW_TAP="$(HOMEBREW_TAP)" HOMEBREW_TAP_DIR="$(HOMEBREW_TAP_DIR)" HOMEBREW_TAP_REMOTE="$(HOMEBREW_TAP_REMOTE)" HOMEBREW_TAP_SLUG="$(HOMEBREW_TAP_SLUG)" HOMEBREW_TAP_README_TITLE="$(HOMEBREW_TAP_README_TITLE)" HOMEBREW_DESC="$(HOMEBREW_DESC)" HOMEBREW_FORMULA_CLASS="$(HOMEBREW_FORMULA_CLASS)" RELEASE_MAKE="$(RELEASE_MAKE)" PATH="$(RUST_BINDIR):$(PATH)" bash -c "$$RELEASE_SCRIPT"
 
 .PHONY: dist
 dist: ## Build release binaries into dist/. Use OS=darwin,linux and ARCH=amd64,arm64
@@ -282,20 +437,20 @@ dist: ## Build release binaries into dist/. Use OS=darwin,linux and ARCH=amd64,a
 			$(MAKE) _dist.$$os.$$arch || exit $$?; \
 		done; \
 	done; \
-	$(MAKE) dist-smoke; \
-	$(MAKE) checksums
+	$(MAKE) dist-smoke || exit $$?; \
+	$(MAKE) checksums || exit $$?
 
 .PHONY: dist-smoke
 dist-smoke: ## Smoke-test Linux dist binaries in a Debian container
-	@if ! ls "$(DISTDIR)"/$(APP)-linux-* >/dev/null 2>&1; then \
+	@if ! ls "$(DISTDIR)"/$(DIST_APP)-linux-* >/dev/null 2>&1; then \
 		printf 'Skipping Linux dist smoke test; no Linux artifacts found\n'; \
 		exit 0; \
-	fi
-	@$(MAKE) --no-print-directory _docker-check
-	@for arch in $(LINUX_ARCHS); do \
+	fi; \
+	$(MAKE) --no-print-directory _docker-check; \
+	for arch in $(LINUX_ARCHS); do \
 		case "$$arch" in \
-			amd64) binary="$(DISTDIR)/$(APP)-$(LINUX_amd64_SUFFIX)"; platform="$(LINUX_amd64_PLATFORM)" ;; \
-			arm64) binary="$(DISTDIR)/$(APP)-$(LINUX_arm64_SUFFIX)"; platform="$(LINUX_arm64_PLATFORM)" ;; \
+			amd64) binary="$(DISTDIR)/$(DIST_APP)-$(LINUX_amd64_SUFFIX)"; platform="$(LINUX_amd64_PLATFORM)" ;; \
+			arm64) binary="$(DISTDIR)/$(DIST_APP)-$(LINUX_arm64_SUFFIX)"; platform="$(LINUX_arm64_PLATFORM)" ;; \
 			*) echo "Unsupported Linux ARCH '$$arch'" >&2; exit 1 ;; \
 		esac; \
 		if [ ! -f "$$binary" ]; then \
@@ -318,11 +473,11 @@ dist-smoke: ## Smoke-test Linux dist binaries in a Debian container
 
 .PHONY: checksums
 checksums: ## Write SHA-256 checksums for dist artifacts
-	@if [ ! -d "$(DISTDIR)" ] || ! ls "$(DISTDIR)"/$(APP)-* >/dev/null 2>&1; then \
+	@if [ ! -d "$(DISTDIR)" ] || ! ls "$(DISTDIR)"/$(DIST_APP)-* >/dev/null 2>&1; then \
 		echo "No dist artifacts found" >&2; \
 		exit 1; \
 	fi
-	@cd "$(DISTDIR)" && shasum -a 256 $(APP)-* > checksums.txt
+	@cd "$(DISTDIR)" && shasum -a 256 $(DIST_APP)-* > checksums.txt
 	@printf 'Wrote %s/checksums.txt\n' "$(DISTDIR)"
 
 .PHONY: _docker-check
@@ -356,10 +511,10 @@ _dist.darwin.$(1): _target.$$(DARWIN_$(1)_TARGET)
 	fi
 	@printf 'Building %s for %s\n' "$(APP)" "$$(DARWIN_$(1)_TARGET)"
 	@mkdir -p $(DISTDIR)
-	@$(CARGO_ENV) $(CARGO) build --release --target $$(DARWIN_$(1)_TARGET)
-	@cp target/$$(DARWIN_$(1)_TARGET)/release/$(APP) $(DISTDIR)/$(APP)-$$(DARWIN_$(1)_SUFFIX)
-	@chmod +x $(DISTDIR)/$(APP)-$$(DARWIN_$(1)_SUFFIX)
-	@printf 'Wrote %s/%s-%s\n' "$(DISTDIR)" "$(APP)" "$$(DARWIN_$(1)_SUFFIX)"
+	@$(CARGO_ENV) $(CARGO) build --locked --release --target $$(DARWIN_$(1)_TARGET)
+	@cp target/$$(DARWIN_$(1)_TARGET)/release/$(APP) $(DISTDIR)/$(DIST_APP)-$$(DARWIN_$(1)_SUFFIX)
+	@chmod +x $(DISTDIR)/$(DIST_APP)-$$(DARWIN_$(1)_SUFFIX)
+	@printf 'Wrote %s/%s-%s\n' "$(DISTDIR)" "$(DIST_APP)" "$$(DARWIN_$(1)_SUFFIX)"
 endef
 $(foreach arch,$(DARWIN_ARCHS),$(eval $(call DARWIN_DIST_RULE,$(arch))))
 
@@ -373,15 +528,17 @@ _dist.linux.$(1): _docker-check
 		-e HOME=/workspace/.home-linux/$(LINUX_CACHE_KEY)/$(1) \
 		-e CARGO_HOME=/workspace/.cargo-linux/$(1) \
 		-e CARGO_TARGET_DIR=/workspace/target/linux-$(1)-$(LINUX_CACHE_KEY) \
+		-e OPENSSL_STATIC=$(LINUX_OPENSSL_STATIC) \
+		-e PKG_CONFIG_ALL_STATIC=$(LINUX_PKG_CONFIG_ALL_STATIC) \
 		-v "$(CURDIR):/workspace" \
 		-w /workspace \
 		$(LINUX_BUILD_IMAGE) \
 		bash -eu -o pipefail -c ' \
 			cargo build --locked --release; \
-			cp target/linux-$(1)-$(LINUX_CACHE_KEY)/release/$(APP) dist/$(APP)-$$(LINUX_$(1)_SUFFIX); \
-			chmod +x dist/$(APP)-$$(LINUX_$(1)_SUFFIX); \
+			cp target/linux-$(1)-$(LINUX_CACHE_KEY)/release/$(APP) dist/$(DIST_APP)-$$(LINUX_$(1)_SUFFIX); \
+			chmod +x dist/$(DIST_APP)-$$(LINUX_$(1)_SUFFIX); \
 			chown -R $(DOCKER_UID):$(DOCKER_GID) dist target/linux-$(1)-$(LINUX_CACHE_KEY) .cargo-linux/$(1) .home-linux/$(LINUX_CACHE_KEY)/$(1)'
-	@printf 'Wrote %s/%s-%s\n' "$(DISTDIR)" "$(APP)" "$$(LINUX_$(1)_SUFFIX)"
+	@printf 'Wrote %s/%s-%s\n' "$(DISTDIR)" "$(DIST_APP)" "$$(LINUX_$(1)_SUFFIX)"
 endef
 $(foreach arch,$(LINUX_ARCHS),$(eval $(call LINUX_DIST_RULE,$(arch))))
 
@@ -389,43 +546,42 @@ $(foreach arch,$(LINUX_ARCHS),$(eval $(call LINUX_DIST_RULE,$(arch))))
 
 .PHONY: help
 help: ## Show this help message
-	@awk 'BEGIN {FS = ":.*##"; width = 0} \
+	@awk -v width="$(HELP_NAME_WIDTH)" 'BEGIN {FS = ":.*##"} \
 		{ lines[NR] = $$0 } \
-		/^[a-zA-Z0-9_.-]+:.*##/ { if (length($$1) > width) width = length($$1) } \
 		END { \
 			section = ""; \
-			width += 2; \
 			for (i = 1; i <= NR; i++) { \
 				$$0 = lines[i]; \
 				if ($$0 ~ /^##@/) { \
 					section = substr($$0, 5); \
 				} else if ($$0 ~ /^[a-zA-Z0-9_.-]+:.*##/) { \
 					split($$0, parts, ":.*##"); \
+					sub(/^[[:space:]]+/, "", parts[2]); \
 					if (section != "") printf "\n\033[1m%s\033[0m\n", section; \
 					section = ""; \
-					printf "  \033[36m%-*s\033[0m %s\n", width, parts[1], parts[2]; \
+					printf "  \033[36m%-*s\033[0m%s\n", width, parts[1], parts[2]; \
 				} \
 			} \
 		}' $(MAKEFILE_LIST)
 	@printf "\n\033[1mVariables:\033[0m\n"
-	@printf "  \033[36mTAG\033[0m                    Release tag for \033[36mmake release\033[0m, for example \033[36mv1.0.0\033[0m\n"
-	@printf "  \033[36mGIT_REMOTE\033[0m             Release git remote, defaults to \033[36m%s\033[0m\n" "$(GIT_REMOTE)"
-	@printf "  \033[36mDOCKER_PLATFORMS\033[0m       Release image platforms, defaults to \033[36m%s\033[0m\n" "$(DOCKER_PLATFORMS)"
-	@printf "  \033[36mDOCKER_IMAGE\033[0m           Release image name, defaults to \033[36mghcr.io/<owner>/<repo>\033[0m\n"
-	@printf "  \033[36mHOMEBREW_TAP\033[0m           Set to \033[36m0\033[0m to skip Homebrew tap publishing\n"
-	@printf "  \033[36mHOMEBREW_TAP_DIR\033[0m       Local Homebrew tap repo, defaults to \033[36m%s\033[0m\n" "$(HOMEBREW_TAP_DIR)"
-	@printf "  \033[36mHOMEBREW_TAP_REMOTE\033[0m    Homebrew tap git remote, defaults to \033[36m%s\033[0m\n" "$(HOMEBREW_TAP_REMOTE)"
-	@printf "  \033[36mOS\033[0m                     Release OS list: \033[36mdarwin,linux\033[0m\n"
-	@printf "  \033[36mARCH\033[0m                   Release arch list: \033[36mamd64,arm64\033[0m\n"
-	@printf "  \033[36mINSTALL_BINDIR\033[0m         Install directory, defaults to \033[36m%s\033[0m\n" "$(INSTALL_BINDIR)"
-	@printf "  \033[36mBASH_COMPLETION_DIR\033[0m    Bash completion install dir, defaults to \033[36m%s\033[0m\n" "$(BASH_COMPLETION_DIR)"
-	@printf "  \033[36mZSH_COMPLETION_DIR\033[0m     Zsh completion install dir, defaults to \033[36m%s\033[0m\n" "$(ZSH_COMPLETION_DIR)"
-	@printf "  \033[36mFISH_COMPLETION_DIR\033[0m    Fish completion install dir, defaults to \033[36m%s\033[0m\n" "$(FISH_COMPLETION_DIR)"
-	@printf "  \033[36mMULTIPASS_NAME\033[0m         Multipass VM name, defaults to \033[36m%s\033[0m\n" "$(MULTIPASS_NAME)"
+	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "TAG" "Release tag for make release, for example v0.1.0"
+	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "GIT_REMOTE" "Release git remote, defaults to $(GIT_REMOTE)"
+	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "HOMEBREW_TAP" "Set to 0 to skip Homebrew tap updates, defaults to $(HOMEBREW_TAP)"
+	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "HOMEBREW_TAP_DIR" "Homebrew tap checkout, defaults to $(HOMEBREW_TAP_DIR)"
+	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "HOMEBREW_TAP_REMOTE" "Homebrew tap git remote, defaults to $(HOMEBREW_TAP_REMOTE)"
+	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "HOMEBREW_TAP_SLUG" "brew tap slug, defaults to GitHub owner/$(APP)"
+	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "HOMEBREW_TAP_README_TITLE" "Homebrew tap README title, defaults to $(HOMEBREW_TAP_README_TITLE)"
+	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "HOMEBREW_DESC" "Homebrew formula description"
+	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "HOMEBREW_FORMULA_CLASS" "Homebrew Ruby class, defaults to $(HOMEBREW_FORMULA_CLASS)"
+	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "OS" "Release OS list for make dist, defaults to $(OS)"
+	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "ARCH" "Release arch list for make dist, defaults to $(ARCH)"
+	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "INSTALL_BINDIR" "Install directory, defaults to $(INSTALL_BINDIR)"
+	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "VHS" "VHS command for make vhs, defaults to $(VHS)"
+	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "VHS_DEMO_COMMAND" "Demo command for make vhs"
+	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_NAME_WIDTH)" "VHS_DEMO_DELAY_SCALE" "Demo scan delay scale for make vhs, defaults to $(VHS_DEMO_DELAY_SCALE)"
 	@printf "\n\033[1mExamples:\033[0m\n"
-	@printf "  \033[36m%-42s\033[0m # to check formatting without writing\n" "make fmt CHECK_ONLY=1"
-	@printf "  \033[36m%-42s\033[0m # to build and install the host binary and completions\n" "make install COMPLETION=1"
-	@printf "  \033[36m%-42s\033[0m # to run all local quality gates and Docker E2E\n" "make check e2e"
-	@printf "  \033[36m%-42s\033[0m # to build and publish release artifacts locally\n" "make release TAG=v1.0.0"
-	@printf "  \033[36m%-42s\033[0m # to build release binaries and checksums\n" "make dist OS=darwin,linux ARCH=amd64,arm64"
-	@printf "  \033[36m%-42s\033[0m # to prepare a Linux VM for manual testing\n" "make multipass"
+	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_EXAMPLE_WIDTH)" "make fmt CHECK_ONLY=1" "# Check formatting without writing"
+	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_EXAMPLE_WIDTH)" "make check" "# Run local quality gates"
+	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_EXAMPLE_WIDTH)" "make vhs" "# Record screencast.gif from deterministic demo data"
+	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_EXAMPLE_WIDTH)" "make dist OS=darwin,linux ARCH=amd64,arm64" "# Build release binaries and checksums"
+	@printf "  \033[36m%-*s\033[0m%s\n" "$(HELP_EXAMPLE_WIDTH)" "make release TAG=v0.1.0" "# Publish a GitHub release and update Homebrew"
