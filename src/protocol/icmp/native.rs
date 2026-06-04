@@ -1,8 +1,22 @@
 use std::{
     net::{IpAddr, SocketAddr},
+    num::NonZeroU32,
     sync::atomic::{AtomicU16, Ordering},
     time::Duration,
 };
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "linux",
+    target_os = "ios",
+    target_os = "visionos",
+    target_os = "macos",
+    target_os = "tvos",
+    target_os = "watchos",
+    target_os = "illumos",
+    target_os = "solaris",
+))]
+use std::ffi::CString;
 
 use async_trait::async_trait;
 use surge_ping::{Client, Config, ICMP, IcmpPacket, PingIdentifier, PingSequence};
@@ -50,6 +64,7 @@ impl NativeIcmpProber {
             .ok_or_else(|| anyhow::anyhow!("missing ICMP destination"))?;
         let host = resolve_icmp_host(destination, config.ipv4, config.ipv6).await?;
         let mut builder = Config::builder();
+        let mut interface_index = None;
         if host.is_ipv6() {
             builder = builder.kind(ICMP::V6);
         }
@@ -60,13 +75,20 @@ impl NativeIcmpProber {
             if let Ok(source) = interface_or_source.parse::<IpAddr>() {
                 builder = builder.bind(SocketAddr::new(source, 0));
             } else {
-                builder = builder.interface(interface_or_source);
+                let index = interface_index_from_name(interface_or_source)?;
+                builder = bind_interface(builder, interface_or_source, index)?;
+                interface_index = Some(index);
             }
         }
 
         let client = Client::new(&builder.build())?;
         let ident = next_ping_identifier();
         let mut pinger = client.pinger(host, ident).await;
+        if host.is_ipv6() {
+            if let Some(interface_index) = interface_index {
+                pinger.scope_id(interface_index.get());
+            }
+        }
         pinger.timeout(config.timeout);
 
         Ok(Self {
@@ -87,6 +109,83 @@ fn next_ping_identifier() -> PingIdentifier {
     let process_id = (std::process::id() & 0xffff) as u16;
     let offset = NEXT_PING_IDENTIFIER_OFFSET.fetch_add(1, Ordering::Relaxed);
     PingIdentifier(process_id.wrapping_add(offset))
+}
+
+fn bind_interface(
+    builder: surge_ping::ConfigBuilder,
+    interface: &str,
+    interface_index: NonZeroU32,
+) -> anyhow::Result<surge_ping::ConfigBuilder> {
+    #[cfg(any(target_os = "android", target_os = "linux"))]
+    {
+        let _ = interface_index;
+        return Ok(builder.interface(interface));
+    }
+
+    #[cfg(any(
+        target_os = "ios",
+        target_os = "visionos",
+        target_os = "macos",
+        target_os = "tvos",
+        target_os = "watchos",
+        target_os = "illumos",
+        target_os = "solaris",
+    ))]
+    {
+        let _ = interface;
+        return Ok(builder.interface_index(interface_index));
+    }
+
+    #[cfg(not(any(
+        target_os = "android",
+        target_os = "linux",
+        target_os = "ios",
+        target_os = "visionos",
+        target_os = "macos",
+        target_os = "tvos",
+        target_os = "watchos",
+        target_os = "illumos",
+        target_os = "solaris",
+    )))]
+    {
+        let _ = builder;
+        let _ = interface;
+        let _ = interface_index;
+        anyhow::bail!("interface selection by name is not supported on this platform; use a source address with -I");
+    }
+}
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "linux",
+    target_os = "ios",
+    target_os = "visionos",
+    target_os = "macos",
+    target_os = "tvos",
+    target_os = "watchos",
+    target_os = "illumos",
+    target_os = "solaris",
+))]
+fn interface_index_from_name(interface: &str) -> anyhow::Result<NonZeroU32> {
+    let interface = CString::new(interface)?;
+    let index = unsafe { libc::if_nametoindex(interface.as_ptr()) };
+    NonZeroU32::new(index)
+        .ok_or_else(|| anyhow::anyhow!("unknown network interface: {}", interface.to_string_lossy()))
+}
+
+#[cfg(not(any(
+    target_os = "android",
+    target_os = "linux",
+    target_os = "ios",
+    target_os = "visionos",
+    target_os = "macos",
+    target_os = "tvos",
+    target_os = "watchos",
+    target_os = "illumos",
+    target_os = "solaris",
+)))]
+fn interface_index_from_name(_interface: &str) -> anyhow::Result<NonZeroU32> {
+    anyhow::bail!("interface selection by name is not supported on this platform; use a source address with -I")
 }
 
 async fn resolve_icmp_host(destination: &str, ipv4: bool, ipv6: bool) -> anyhow::Result<IpAddr> {
@@ -160,5 +259,11 @@ mod tests {
     #[test]
     fn ping_identifiers_are_unique_per_native_prober() {
         assert_ne!(next_ping_identifier().0, next_ping_identifier().0);
+    }
+
+    #[test]
+    fn invalid_interface_name_is_rejected() {
+        let error = interface_index_from_name("clockping-invalid-interface").unwrap_err();
+        assert_eq!(error.to_string(), "unknown network interface: clockping-invalid-interface");
     }
 }
