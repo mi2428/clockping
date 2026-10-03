@@ -102,6 +102,8 @@ Metrics Options:
 
 Shell completions for bash, zsh, and fish are tracked in `completions/`.
 Print a script directly with the `completion` subcommand.
+Fish completion uses CLI-schema command contexts, preserving dotted global
+options and their values without passing those names to Fish's `argparse`.
 
 ```console
 $ clockping completion bash  # Print a script directly
@@ -445,6 +447,7 @@ $ python3 tests/build_metadata.py
 $ cargo run --quiet -- completion bash | diff - completions/clockping.bash
 $ cargo run --quiet -- completion zsh | diff - completions/_clockping
 $ cargo run --quiet -- completion fish | diff - completions/clockping.fish
+$ python3 tests/completion_fish.py  # Requires Fish; checks real completion candidates
 $ docker compose -f docker-compose.test.yml up --build --abort-on-container-exit --exit-code-from sut
 ```
 

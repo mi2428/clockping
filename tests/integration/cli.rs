@@ -595,20 +595,30 @@ while True:
 }
 
 #[test]
-fn completion_subcommand_generates_bash_script() {
-    let output = run_clockping_raw(&["completion", "bash"]);
-    let combined = combined_output(&output);
-
-    assert!(
-        output.status.success(),
-        "completion generation failed with status {}\n{}",
-        output.status,
-        combined
-    );
-    assert_contains(&combined, "_clockping");
-    assert_contains(&combined, "tcp");
-    assert_contains(&combined, "http");
-    assert_contains(&combined, "gtp");
+fn completion_subcommand_matches_tracked_scripts() {
+    for (shell, script) in [
+        (
+            "bash",
+            include_bytes!("../../completions/clockping.bash").as_slice(),
+        ),
+        (
+            "zsh",
+            include_bytes!("../../completions/_clockping").as_slice(),
+        ),
+        (
+            "fish",
+            include_bytes!("../../completions/clockping.fish").as_slice(),
+        ),
+    ] {
+        let output = run_clockping_raw(&["completion", shell]);
+        assert!(
+            output.status.success(),
+            "{shell} completion generation failed: {}",
+            combined_output(&output)
+        );
+        assert_eq!(output.stdout, script, "{shell} completion is stale");
+        assert!(output.stderr.is_empty());
+    }
 }
 
 #[test]

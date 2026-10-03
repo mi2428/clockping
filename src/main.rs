@@ -1,4 +1,5 @@
 mod cli;
+mod completion;
 mod event;
 mod metrics;
 mod metrics_file;
@@ -19,7 +20,6 @@ use std::{
 
 use anyhow::Context;
 use clap::{CommandFactory, Parser};
-use clap_complete::generate;
 use tokio::task::JoinSet;
 
 use crate::{
@@ -67,8 +67,7 @@ async fn run() -> anyhow::Result<ExitCode> {
     match cli.command {
         Command::Completion(command) => {
             let mut cli_command = Cli::command();
-            let mut script = Vec::new();
-            generate(command.shell, &mut cli_command, "clockping", &mut script);
+            let script = completion::script(command.shell, &mut cli_command);
             io::stdout().write_all(&script)?;
         }
         Command::Icmp(command) => match icmp::parse_engine(command.args)? {

@@ -68,11 +68,18 @@ alongside syn 2; no application feature is added.
   `bash -n` (also macOS `/bin/bash`), `fish --no-config -n`, `zsh -n`, and the
   existing completion/help integration tests passed. Nineteen Bash hook contexts
   on each Bash version retained every real candidate.
-- Fish changes indentation only, with ten before/after hook outputs identical.
-  **Existing runtime limitation:** Fish 4.9.3 rejects the generated global
-  `argparse` spec `ts.preset=` in both versions, blocking positive command
-  completion coverage. No workaround was added; generator synchronization does
-  not fix this separate dotted-option parsing defect.
+- The refresh alone changed Fish indentation, but its ten identical hook outputs
+  hid a pre-existing defect: Fish 4.9.3 rejects the generated `argparse` spec
+  `ts.preset=`, so command candidates were absent in both versions. This is now
+  repaired at the producer: clap_complete 4.6.11 still emits named-option metadata
+  for each command, without its obsolete subcommand helpers; CLI-schema/native
+  Fish contexts distinguish commands from separate/inline option values and
+  respect `--`. Positional shell choices are emitted from the same schema.
+  `python3 tests/completion_fish.py` fails on the old script and passes real
+  positive/boundary hooks for all root commands, GTP variants, dotted globals,
+  short flags, enum prefixes, command-like values, and ICMP raw arguments.
+  Generated Bash/zsh bytes remain unchanged; all three tracked scripts are
+  compared byte-for-byte by the completion integration test.
 - The combined development branch passed `make check`: 105 unit tests and
   35 integration tests, with native Pushgateway and Docker E2E separately ignored.
   Native formatting/lint and SIGINT readiness fixes were integrated; the earlier
