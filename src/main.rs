@@ -319,6 +319,8 @@ fn exit_code_for_summaries(summaries: &[Summary]) -> ExitCode {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
 
     #[tokio::test]
