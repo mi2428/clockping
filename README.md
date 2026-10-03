@@ -430,6 +430,7 @@ $ make check
 $ actionlint .github/workflows/checks.yml
 $ python3 tests/release_gate.py
 $ cargo build && python3 tests/http_proxy_contract.py
+$ python3 tests/build_metadata.py
 $ cargo run --quiet -- completion bash | diff - completions/clockping.bash
 $ cargo run --quiet -- completion zsh | diff - completions/_clockping
 $ cargo run --quiet -- completion fish | diff - completions/clockping.fish
@@ -447,6 +448,23 @@ $ make release TAG=v1.0.0
 The release target requires a clean working tree and runs `make check` before any tag, build, push, upload, or Homebrew update. It then builds tag-named `dist/` binaries and checksums, creates or updates the GitHub Release, uploads the artifacts, and publishes the Homebrew formula.
 It expects `gh` to be authenticated, Docker to be available for Linux release builds, and [`../homebrew-clockping`](https://github.com/mi2428/homebrew-clockping) to be a clean local checkout of the tap repo.
 Set `HOMEBREW_TAP=0` to skip the Homebrew tap update.
+
+### Build metadata
+
+`--version` includes Git describe/commit/commit date plus build date, host, target, and profile. Nonempty `CLOCKPING_GIT_DESCRIBE`, `CLOCKPING_GIT_COMMIT`, `CLOCKPING_GIT_COMMIT_DATE`, and `CLOCKPING_BUILD_DATE` values override their respective fields. `SOURCE_DATE_EPOCH` supplies a reproducible UTC build date unless `CLOCKPING_BUILD_DATE` overrides it; simply advancing wall-clock time is not a rebuild trigger.
+
+`python3 tests/build_metadata.py` builds a dependency-free fixture with the real build script/version renderer, compares `--version` to Git, and removes its temporary repositories/worktree/build outputs from `target/` on exit. It never changes project tags or remotes. Investigation found:
+
+| Scenario | Before targeted invalidation | Current check |
+| --- | --- | --- |
+| Normal repository, tag-only or tracked-file dirty/clean changes | Stale describe reused with unchanged HEAD | Fresh metadata |
+| Normal loose branch advances | Fresh metadata | Still fresh |
+| Packed refs and symbolic linked worktree, unchanged inputs | Rebuilt every time due to missing loose/per-worktree branch ref input | Cached build reused after initial index refresh |
+| Linked worktree branch advances or common-dir packed tag changes | Branch advances were fresh; packed changes lacked an explicit input | Fresh metadata using Git-resolved paths |
+| Detached linked worktree, tag-only or dirty/clean changes | Stale describe reused | Fresh metadata |
+| Explicit field overrides and `SOURCE_DATE_EPOCH` changes | Fresh metadata | Preserved |
+
+Rerun inputs are Git-resolved HEAD/index/refs/existing packed refs and tracked files, not a blanket rebuild. Untracked files do not make `git describe` dirty. Git can refresh a newly created index once; a deleted tracked file remains a missing Cargo input and is rechecked until restored.
 
 ## License
 

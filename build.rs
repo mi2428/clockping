@@ -1,5 +1,5 @@
 use std::{
-    env, fs,
+    env,
     path::{Path, PathBuf},
     process::Command,
 };
@@ -51,30 +51,43 @@ fn emit_git_rerun_instructions(manifest_dir: &Path) {
     let git = manifest_dir.join(".git");
     if git.is_file() {
         println!("cargo:rerun-if-changed={}", git.display());
-        let Ok(contents) = fs::read_to_string(&git) else {
-            return;
-        };
-        let Some(git_dir) = contents.trim().strip_prefix("gitdir: ") else {
-            return;
-        };
-        let git_dir = absolutize_git_path(manifest_dir, git_dir);
-        emit_git_dir_rerun_instructions(&git_dir);
-        return;
     }
-    if git.is_dir() {
-        emit_git_dir_rerun_instructions(&git);
+    // Git resolves per-worktree HEAD/index and common-dir refs correctly.
+    // The refs tree also changes when loose refs are created or packed/pruned.
+    for entry in ["HEAD", "refs", "packed-refs", "index"] {
+        if let Some(path) = git_output(manifest_dir, ["rev-parse", "--git-path", entry]) {
+            let path = absolutize_git_path(manifest_dir, &path);
+            if path.exists() {
+                println!("cargo:rerun-if-changed={}", path.display());
+            }
+        }
     }
-}
-
-fn emit_git_dir_rerun_instructions(git_dir: &Path) {
-    println!("cargo:rerun-if-changed={}", git_dir.join("HEAD").display());
-    let Ok(head) = fs::read_to_string(git_dir.join("HEAD")) else {
+    let Ok(output) = Command::new("git")
+        .args(["ls-files", "--cached", "-z"])
+        .current_dir(manifest_dir)
+        .output()
+    else {
         return;
     };
-    if let Some(ref_name) = head.trim().strip_prefix("ref: ") {
+    if !output.status.success() {
+        return;
+    }
+    for file in output
+        .stdout
+        .split(|byte| *byte == 0)
+        .filter(|file| !file.is_empty())
+    {
+        #[cfg(unix)]
+        let file = {
+            use std::os::unix::ffi::OsStrExt;
+            Path::new(std::ffi::OsStr::from_bytes(file))
+        };
+        #[cfg(not(unix))]
+        let file = Path::new(std::str::from_utf8(file).expect("Git path must be UTF-8"));
+        // ponytail: deleted tracked files rerun until restored; use an existence-aware Cargo input if available.
         println!(
             "cargo:rerun-if-changed={}",
-            git_dir.join(ref_name).display()
+            manifest_dir.join(file).display()
         );
     }
 }
@@ -91,6 +104,7 @@ fn absolutize_git_path(manifest_dir: &Path, git_dir: &str) -> PathBuf {
 fn git_output<const N: usize>(manifest_dir: &Path, args: [&str; N]) -> Option<String> {
     let output = Command::new("git")
         .args(args)
+        .env("GIT_OPTIONAL_LOCKS", "0")
         .current_dir(manifest_dir)
         .output()
         .ok()?;

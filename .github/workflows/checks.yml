@@ -19,6 +19,8 @@ jobs:
       - run: make check
       - name: Check release gate without publishing
         run: python3 tests/release_gate.py
+      - name: Check Git build metadata in disposable fixtures
+        run: python3 tests/build_metadata.py
       - name: Check tracked completions
         run: |
           cargo run --quiet -- completion bash | diff - completions/clockping.bash
