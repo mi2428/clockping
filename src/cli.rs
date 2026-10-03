@@ -1,4 +1,7 @@
-use std::{ffi::OsString, time::Duration};
+use std::{
+    ffi::OsString,
+    time::{Duration, Instant},
+};
 
 use clap::{Args, Parser, Subcommand};
 
@@ -370,7 +373,12 @@ pub fn parse_seconds(value: &str) -> Result<Duration, String> {
             "expected a non-negative finite duration, got {value:?}"
         ));
     }
-    Ok(Duration::from_secs_f64(seconds))
+    let duration = Duration::try_from_secs_f64(seconds)
+        .map_err(|_| format!("duration is too large: {value:?}"))?;
+    if Instant::now().checked_add(duration).is_none() {
+        return Err(format!("duration is too large for a timer: {value:?}"));
+    }
+    Ok(duration)
 }
 
 fn parse_tcp_target(value: &str) -> Result<String, String> {
@@ -446,6 +454,39 @@ mod tests {
     #[test]
     fn reject_negative_seconds() {
         assert!(parse_seconds("-1").is_err());
+    }
+
+    #[test]
+    fn seconds_are_validated_for_every_mode_and_option() {
+        assert_eq!(parse_seconds("0").unwrap(), Duration::ZERO);
+        assert_eq!(parse_seconds("0.25").unwrap(), Duration::from_millis(250));
+        for value in ["NaN", "inf", "-1", "1e30"] {
+            assert!(parse_seconds(value).is_err(), "{value}");
+        }
+        for (mode, target) in [
+            ("tcp", "127.0.0.1:1"),
+            ("http", "127.0.0.1"),
+            ("gtp", "127.0.0.1"),
+        ] {
+            for flag in ["-i", "-W", "-w"] {
+                let mut args = vec!["clockping", mode];
+                if mode == "gtp" {
+                    args.push("v1u");
+                }
+                args.extend([flag, "1e30", target]);
+                assert!(Cli::try_parse_from(args).is_err(), "{mode} {flag}");
+            }
+        }
+        for flag in ["-i", "-W", "-w"] {
+            let args = ["clockping", "icmp", flag, "1e30", "127.0.0.1"];
+            let Command::Icmp(command) = Cli::try_parse_from(args).unwrap().command else {
+                panic!("expected ICMP command");
+            };
+            assert!(
+                crate::protocol::icmp::parse_engine(command.args).is_err(),
+                "icmp {flag}"
+            );
+        }
     }
 
     #[test]
