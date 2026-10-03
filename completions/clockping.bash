@@ -372,7 +372,7 @@ _clockping() {
             return 0
             ;;
         clockping__subcmd__gtp__subcmd__v1c)
-            opts="-c -i -W -w -q -h -V --count --interval --timeout --deadline --port --quiet --ts.preset --ts.format --out.format --out.colored --push.url --push.delete-on-exit --push.interval --push.job --push.label --push.retries --push.timeout --push.user-agent --metrics.file --metrics.format --metrics.label --metrics.prefix --help --version <TARGET>..."
+            opts="-c -i -W -w -q -h -V --count --interval --timeout --deadline --port --quiet --ts.preset --ts.format --out.format --out.colored --push.url --push.delete-on-exit --push.interval --push.job --push.label --push.retries --push.timeout --push.user-agent --metrics.file --metrics.format --metrics.label --metrics.prefix --help --version"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -478,7 +478,7 @@ _clockping() {
             return 0
             ;;
         clockping__subcmd__gtp__subcmd__v1u)
-            opts="-c -i -W -w -q -h -V --count --interval --timeout --deadline --port --quiet --ts.preset --ts.format --out.format --out.colored --push.url --push.delete-on-exit --push.interval --push.job --push.label --push.retries --push.timeout --push.user-agent --metrics.file --metrics.format --metrics.label --metrics.prefix --help --version <TARGET>..."
+            opts="-c -i -W -w -q -h -V --count --interval --timeout --deadline --port --quiet --ts.preset --ts.format --out.format --out.colored --push.url --push.delete-on-exit --push.interval --push.job --push.label --push.retries --push.timeout --push.user-agent --metrics.file --metrics.format --metrics.label --metrics.prefix --help --version"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -584,7 +584,7 @@ _clockping() {
             return 0
             ;;
         clockping__subcmd__gtp__subcmd__v2c)
-            opts="-c -i -W -w -q -h -V --count --interval --timeout --deadline --port --quiet --ts.preset --ts.format --out.format --out.colored --push.url --push.delete-on-exit --push.interval --push.job --push.label --push.retries --push.timeout --push.user-agent --metrics.file --metrics.format --metrics.label --metrics.prefix --help --version <TARGET>..."
+            opts="-c -i -W -w -q -h -V --count --interval --timeout --deadline --port --quiet --ts.preset --ts.format --out.format --out.colored --push.url --push.delete-on-exit --push.interval --push.job --push.label --push.retries --push.timeout --push.user-agent --metrics.file --metrics.format --metrics.label --metrics.prefix --help --version"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -830,7 +830,7 @@ _clockping() {
             return 0
             ;;
         clockping__subcmd__http)
-            opts="-4 -6 -c -i -W -w -X -H -L -k -q -h -V --count --interval --timeout --deadline --method --ok-status --header --location --insecure --quiet --ts.preset --ts.format --out.format --out.colored --push.url --push.delete-on-exit --push.interval --push.job --push.label --push.retries --push.timeout --push.user-agent --metrics.file --metrics.format --metrics.label --metrics.prefix --help --version <TARGET>..."
+            opts="-4 -6 -c -i -W -w -X -H -L -k -q -h -V --count --interval --timeout --deadline --method --ok-status --header --location --insecure --quiet --ts.preset --ts.format --out.format --out.colored --push.url --push.delete-on-exit --push.interval --push.job --push.label --push.retries --push.timeout --push.user-agent --metrics.file --metrics.format --metrics.label --metrics.prefix --help --version"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -952,7 +952,7 @@ _clockping() {
             return 0
             ;;
         clockping__subcmd__icmp)
-            opts="-h -V --ts.preset --ts.format --out.format --out.colored --push.url --push.delete-on-exit --push.interval --push.job --push.label --push.retries --push.timeout --push.user-agent --metrics.file --metrics.format --metrics.label --metrics.prefix --help --version [ARGS]..."
+            opts="-h -V --ts.preset --ts.format --out.format --out.colored --push.url --push.delete-on-exit --push.interval --push.job --push.label --push.retries --push.timeout --push.user-agent --metrics.file --metrics.format --metrics.label --metrics.prefix --help --version"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1022,7 +1022,7 @@ _clockping() {
             return 0
             ;;
         clockping__subcmd__tcp)
-            opts="-4 -6 -c -i -W -w -q -h -V --count --interval --timeout --deadline --quiet --ts.preset --ts.format --out.format --out.colored --push.url --push.delete-on-exit --push.interval --push.job --push.label --push.retries --push.timeout --push.user-agent --metrics.file --metrics.format --metrics.label --metrics.prefix --help --version <TARGET>..."
+            opts="-4 -6 -c -i -W -w -q -h -V --count --interval --timeout --deadline --quiet --ts.preset --ts.format --out.format --out.colored --push.url --push.delete-on-exit --push.interval --push.job --push.label --push.retries --push.timeout --push.user-agent --metrics.file --metrics.format --metrics.label --metrics.prefix --help --version"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0

@@ -31,8 +31,8 @@ _clockping() {
 '--metrics.prefix=[Prometheus metric name prefix]:PREFIX:_default' \
 '--out.colored[Colorize human-readable output with ANSI escape sequences]' \
 '--push.delete-on-exit[Delete this Pushgateway grouping key after the run exits]' \
-'-h[Print help]' \
-'--help[Print help]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
 '-V[Print version]' \
 '--version[Print version]' \
 ":: :_clockping_commands" \
@@ -62,8 +62,8 @@ _arguments "${_arguments_options[@]}" : \
 '--metrics.prefix=[Prometheus metric name prefix]:PREFIX:_default' \
 '--out.colored[Colorize human-readable output with ANSI escape sequences]' \
 '--push.delete-on-exit[Delete this Pushgateway grouping key after the run exits]' \
-'-h[Print help]' \
-'--help[Print help]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
 '-V[Print version]' \
 '--version[Print version]' \
 '*::args -- ICMP native options, or system ping argv when --pinger is specified:_default' \
@@ -99,8 +99,8 @@ _arguments "${_arguments_options[@]}" : \
 '--quiet[Suppress per-probe output and only print the summary]' \
 '--out.colored[Colorize human-readable output with ANSI escape sequences]' \
 '--push.delete-on-exit[Delete this Pushgateway grouping key after the run exits]' \
-'-h[Print help]' \
-'--help[Print help]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
 '-V[Print version]' \
 '--version[Print version]' \
 '*::targets -- Targets as host\:port. Repeat for multiple targets:_default' \
@@ -145,8 +145,8 @@ _arguments "${_arguments_options[@]}" : \
 '--quiet[Suppress per-probe output and only print the summary]' \
 '--out.colored[Colorize human-readable output with ANSI escape sequences]' \
 '--push.delete-on-exit[Delete this Pushgateway grouping key after the run exits]' \
-'-h[Print help]' \
-'--help[Print help]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
 '-V[Print version]' \
 '--version[Print version]' \
 '*::targets -- Target URLs. If no scheme is given, http\:// is assumed:_default' \
@@ -170,8 +170,8 @@ _arguments "${_arguments_options[@]}" : \
 '--metrics.prefix=[Prometheus metric name prefix]:PREFIX:_default' \
 '--out.colored[Colorize human-readable output with ANSI escape sequences]' \
 '--push.delete-on-exit[Delete this Pushgateway grouping key after the run exits]' \
-'-h[Print help]' \
-'--help[Print help]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
 '-V[Print version]' \
 '--version[Print version]' \
 ":: :_clockping__subcmd__gtp_commands" \
@@ -213,8 +213,8 @@ _arguments "${_arguments_options[@]}" : \
 '--quiet[Suppress per-probe output and only print the summary]' \
 '--out.colored[Colorize human-readable output with ANSI escape sequences]' \
 '--push.delete-on-exit[Delete this Pushgateway grouping key after the run exits]' \
-'-h[Print help]' \
-'--help[Print help]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
 '-V[Print version]' \
 '--version[Print version]' \
 '*::targets -- Target hosts or IP addresses:_default' \
@@ -249,8 +249,8 @@ _arguments "${_arguments_options[@]}" : \
 '--quiet[Suppress per-probe output and only print the summary]' \
 '--out.colored[Colorize human-readable output with ANSI escape sequences]' \
 '--push.delete-on-exit[Delete this Pushgateway grouping key after the run exits]' \
-'-h[Print help]' \
-'--help[Print help]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
 '-V[Print version]' \
 '--version[Print version]' \
 '*::targets -- Target hosts or IP addresses:_default' \
@@ -285,8 +285,8 @@ _arguments "${_arguments_options[@]}" : \
 '--quiet[Suppress per-probe output and only print the summary]' \
 '--out.colored[Colorize human-readable output with ANSI escape sequences]' \
 '--push.delete-on-exit[Delete this Pushgateway grouping key after the run exits]' \
-'-h[Print help]' \
-'--help[Print help]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
 '-V[Print version]' \
 '--version[Print version]' \
 '*::targets -- Target hosts or IP addresses:_default' \
@@ -346,8 +346,8 @@ _arguments "${_arguments_options[@]}" : \
 '--metrics.prefix=[Prometheus metric name prefix]:PREFIX:_default' \
 '--out.colored[Colorize human-readable output with ANSI escape sequences]' \
 '--push.delete-on-exit[Delete this Pushgateway grouping key after the run exits]' \
-'-h[Print help]' \
-'--help[Print help]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
 '-V[Print version]' \
 '--version[Print version]' \
 ':shell -- Shell to generate completion script for:(bash elvish fish powershell zsh)' \
