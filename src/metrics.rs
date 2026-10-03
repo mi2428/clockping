@@ -204,19 +204,14 @@ impl MetricsReporter {
 
         self.windows
             .entry(key)
-            .or_insert_with(|| WindowState {
-                started: now,
-                samples: Vec::new(),
-            })
-            .samples
-            .push(metrics);
+            .or_insert_with(|| WindowState::new(&metrics, now))
+            .record(&metrics);
         pending
     }
 
     fn flush_window(&mut self, key: &MetricsKey) -> Option<PendingPush> {
         let window = self.windows.remove(key)?;
-        let metrics = aggregate_window(&window.samples)?;
-        self.latest_windows.insert(key.clone(), metrics);
+        self.latest_windows.insert(key.clone(), window.metrics);
         self.snapshot_pending = true;
         self.pushgateway
             .as_ref()
@@ -263,7 +258,48 @@ impl MetricsKey {
 #[derive(Debug)]
 struct WindowState {
     started: Instant,
-    samples: Vec<ProbeMetrics>,
+    first_timestamp: f64,
+    rtt_sum: f64,
+    metrics: WindowMetrics,
+}
+
+impl WindowState {
+    fn new(first: &ProbeMetrics, started: Instant) -> Self {
+        Self {
+            started,
+            first_timestamp: first.timestamp_unix_seconds,
+            rtt_sum: 0.0,
+            metrics: WindowMetrics {
+                protocol: first.protocol.clone(),
+                target: first.target.clone(),
+                ..WindowMetrics::default()
+            },
+        }
+    }
+
+    fn record(&mut self, sample: &ProbeMetrics) {
+        let metrics = &mut self.metrics;
+        metrics.timestamp_unix_seconds = sample.timestamp_unix_seconds;
+        metrics.duration_seconds = (sample.timestamp_unix_seconds - self.first_timestamp).max(0.0);
+        metrics.samples += 1;
+        if let Some(rtt) = sample.rtt_seconds {
+            metrics.replies += 1;
+            self.rtt_sum += rtt;
+            metrics.rtt_mean_seconds = Some(self.rtt_sum / metrics.replies as f64);
+            metrics.rtt_min_seconds = metrics
+                .rtt_min_seconds
+                .into_iter()
+                .chain([rtt])
+                .min_by(f64::total_cmp);
+            metrics.rtt_max_seconds = metrics
+                .rtt_max_seconds
+                .into_iter()
+                .chain([rtt])
+                .max_by(f64::total_cmp);
+        }
+        metrics.lost = metrics.samples - metrics.replies;
+        metrics.loss_pct = metrics.lost as f64 / metrics.samples as f64 * 100.0;
+    }
 }
 
 #[derive(Debug)]
@@ -377,40 +413,6 @@ impl Drop for PushGatewaySink {
     }
 }
 
-pub fn aggregate_window(samples: &[ProbeMetrics]) -> Option<WindowMetrics> {
-    let first = samples.first()?;
-    let last = samples.last().unwrap_or(first);
-    let mut rtts = samples
-        .iter()
-        .filter_map(|sample| sample.rtt_seconds)
-        .collect::<Vec<_>>();
-    rtts.sort_by(f64::total_cmp);
-    let replies = rtts.len() as u64;
-    let samples_len = samples.len() as u64;
-    let lost = samples_len.saturating_sub(replies);
-    let loss_pct = if samples_len == 0 {
-        0.0
-    } else {
-        lost as f64 / samples_len as f64 * 100.0
-    };
-    let rtt_mean_seconds = (!rtts.is_empty()).then(|| rtts.iter().sum::<f64>() / rtts.len() as f64);
-    let duration_seconds = (last.timestamp_unix_seconds - first.timestamp_unix_seconds).max(0.0);
-
-    Some(WindowMetrics {
-        timestamp_unix_seconds: last.timestamp_unix_seconds,
-        protocol: first.protocol.clone(),
-        target: first.target.clone(),
-        duration_seconds,
-        samples: samples_len,
-        replies,
-        lost,
-        loss_pct,
-        rtt_mean_seconds,
-        rtt_min_seconds: rtts.first().copied(),
-        rtt_max_seconds: rtts.last().copied(),
-    })
-}
-
 fn current_unix_timestamp_seconds() -> f64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -421,6 +423,14 @@ fn current_unix_timestamp_seconds() -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn aggregate_window(samples: &[ProbeMetrics]) -> Option<WindowMetrics> {
+        let mut state = WindowState::new(samples.first()?, Instant::now());
+        for sample in samples {
+            state.record(sample);
+        }
+        Some(state.metrics)
+    }
 
     fn reporter_with_capture(
         interval: Option<Duration>,
@@ -541,6 +551,100 @@ mod tests {
             assert_eq!(snapshot[0].samples, 1);
             assert_eq!(snapshot[0].rtt_mean_seconds, Some(expected_mean));
         }
+    }
+
+    #[test]
+    fn window_state_counts_many_samples_without_growing_label_allocations() {
+        let mut probe = sample("one:443");
+        probe.timestamp_unix_seconds = 100.0;
+        let mut state = WindowState::new(&probe, Instant::now());
+        let label_allocations = (
+            state.metrics.protocol.as_ptr(),
+            state.metrics.target.as_ptr(),
+        );
+        for seq in 0..100_002 {
+            probe.timestamp_unix_seconds = 100.0 + seq as f64 / 1000.0;
+            (probe.status, probe.rtt_seconds) = match seq % 3 {
+                0 => ("reply", Some((seq % 6 + 1) as f64 / 1000.0)),
+                1 => ("timeout", None),
+                _ => ("error", None),
+            };
+            state.record(&probe);
+        }
+        assert_eq!(
+            label_allocations,
+            (
+                state.metrics.protocol.as_ptr(),
+                state.metrics.target.as_ptr()
+            )
+        );
+        let metrics = state.metrics;
+        assert_eq!(metrics.samples, 100_002);
+        assert_eq!(metrics.replies, 33_334);
+        assert_eq!(metrics.lost, 66_668);
+        assert!((metrics.loss_pct - 200.0 / 3.0).abs() < 1e-12);
+        assert!((metrics.rtt_mean_seconds.unwrap() - 0.0025).abs() < 1e-12);
+        assert_eq!(metrics.rtt_min_seconds, Some(0.001));
+        assert_eq!(metrics.rtt_max_seconds, Some(0.004));
+        assert!((metrics.duration_seconds - 100.001).abs() < 1e-12);
+        assert!((metrics.timestamp_unix_seconds - 200.001).abs() < 1e-12);
+    }
+
+    #[test]
+    fn window_state_preserves_empty_failure_and_nonmonotonic_timestamp_behavior() {
+        assert!(aggregate_window(&[]).is_none());
+        let mut first = sample("one:443");
+        first.timestamp_unix_seconds = 10.0;
+        first.rtt_seconds = None;
+        first.status = "timeout";
+        let mut second = first.clone();
+        second.timestamp_unix_seconds = 9.0;
+        second.status = "error";
+        let metrics = aggregate_window(&[first, second]).unwrap();
+        assert_eq!(metrics.samples, 2);
+        assert_eq!(metrics.replies, 0);
+        assert_eq!(metrics.lost, 2);
+        assert_eq!(metrics.loss_pct, 100.0);
+        assert_eq!(metrics.timestamp_unix_seconds, 9.0);
+        assert_eq!(metrics.duration_seconds, 0.0);
+        assert_eq!(metrics.rtt_mean_seconds, None);
+        assert_eq!(metrics.rtt_min_seconds, None);
+        assert_eq!(metrics.rtt_max_seconds, None);
+    }
+
+    #[tokio::test]
+    async fn finish_flushes_distinct_mixed_partial_windows_for_all_targets() {
+        let (reporter, mut receiver) = reporter_with_capture(Some(Duration::from_secs(10)));
+        {
+            let mut reporter = reporter.lock().await;
+            reporter.record(sample("one:443")).unwrap();
+            let mut lost = sample("one:443");
+            lost.timestamp_unix_seconds = 3.0;
+            lost.rtt_seconds = None;
+            lost.status = "timeout";
+            reporter.record(lost.clone()).unwrap();
+            lost.target = "two:443".to_owned();
+            lost.status = "error";
+            reporter.record(lost).unwrap();
+            assert_eq!(reporter.windows.len(), 2);
+            reporter.finish().await;
+            assert!(reporter.windows.is_empty());
+        }
+        let _ = receiver.recv().await.unwrap();
+        let PushBatch::Windows(snapshot) = receiver.recv().await.unwrap() else {
+            panic!("wrong snapshot kind")
+        };
+        assert_eq!(snapshot.len(), 2);
+        assert_eq!(snapshot[0].target, "one:443");
+        assert_eq!(snapshot[0].samples, 2);
+        assert_eq!(snapshot[0].replies, 1);
+        assert_eq!(snapshot[0].loss_pct, 50.0);
+        assert_eq!(snapshot[0].duration_seconds, 2.0);
+        assert_eq!(snapshot[1].target, "two:443");
+        assert_eq!(snapshot[1].samples, 1);
+        assert_eq!(snapshot[1].replies, 0);
+        assert_eq!(snapshot[1].loss_pct, 100.0);
+        assert_eq!(snapshot[1].rtt_mean_seconds, None);
     }
 
     #[test]
