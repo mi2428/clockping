@@ -20,6 +20,7 @@ $ brew install clockping
 Install Rust and Cargo first, then build and install the binary with `make install`.
 By default, the binary is installed to `~/.local/bin/clockping`.
 Set `INSTALL_BINDIR` if you want to install it somewhere else.
+For example, `make -C clockping install INSTALL_BINDIR="$HOME/bin"` overrides the destination without changing the source checkout.
 
 ```console
 $ git clone https://github.com/mi2428/clockping
@@ -29,9 +30,10 @@ $ make -C clockping install
 >[!TIP]
 > Prebuilt binaries are also available from GitHub Releases for macOS and Linux, with amd64 and arm64 builds for each platform.
 > Pick the asset that matches your machine, make it executable, and place it on your `PATH`.
+> This example uses the published v1.0.2 macOS arm64 asset; see [Releases](https://github.com/mi2428/clockping/releases) for other versions and platforms. A source checkout may be newer than the latest published release.
 >
 > ```console
-> $ curl -L -o clockping https://github.com/mi2428/clockping/releases/download/v0.9.0/clockping-v0.9.0-darwin-arm64
+> $ curl -fL -o clockping https://github.com/mi2428/clockping/releases/download/v1.0.2/clockping-v1.0.2-darwin-arm64
 > $ chmod +x ./clockping
 > ```
 
@@ -346,6 +348,8 @@ Metrics Options:
 
 ## Development
 
+The install default below is shown as `$HOME/.local/bin` rather than an expanded user-specific path.
+
 ```console
 $ make
 
@@ -383,7 +387,7 @@ Variables:
   HOMEBREW_FORMULA_CLASS     Homebrew Ruby class, defaults to Clockping
   OS                         Release OS list for make dist, defaults to darwin,linux
   ARCH                       Release arch list for make dist, defaults to amd64,arm64
-  INSTALL_BINDIR             Install directory, defaults to /Users/teo/.local/bin
+  INSTALL_BINDIR             Install directory, defaults to $HOME/.local/bin
   VHS                        VHS command for make vhs, defaults to vhs
   VHS_DEMO_COMMAND           Demo command for make vhs
   VHS_DEMO_DELAY_SCALE       Demo scan delay scale for make vhs, defaults to 1
