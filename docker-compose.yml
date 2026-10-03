@@ -1,12 +1,12 @@
 services:
   pushgateway:
-    image: prom/pushgateway:latest
+    image: prom/pushgateway:v1.11.3
     restart: unless-stopped
     ports:
       - "${OBSERVABILITY_HOST:-127.0.0.1}:${PUSHGATEWAY_PORT:-9091}:9091"
 
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v3.15.0
     restart: unless-stopped
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
@@ -22,7 +22,7 @@ services:
       - pushgateway
 
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:13.2.3
     restart: unless-stopped
     environment:
       GF_SECURITY_ADMIN_USER: "${GRAFANA_ADMIN_USER:-admin}"
