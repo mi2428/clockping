@@ -253,8 +253,12 @@ Metrics Options:
 
 HTTP mode sends `HEAD` by default and measures time to response headers.
 Use `-X GET` when the endpoint requires a body-capable request.
-Status codes in `--ok-status` count as replies, redirects require `-L`, repeated `-H 'Name: value'` options add headers, and `-4`/`-6` restrict DNS results.
+Status codes in `--ok-status` count as replies, redirects require `-L`, and repeated `-H 'Name: value'` options add headers.
 HTTPS uses Rustls with embedded webpki roots, so the scratch release image does not need an OS CA bundle.
+
+HTTP measures ordinary **proxy-aware HTTP availability**, not necessarily direct-origin connectivity. The client honors the standard `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, and `NO_PROXY` environment settings (including lowercase forms). A successful proxy response can count as a reply even when the origin is unavailable; use `NO_PROXY` for targets that must be contacted directly.
+
+`-4`/`-6` select the client's connection family and filter DNS results for that connection. With a proxy, this constrains the connection to the proxy, not the proxy's connection to the origin. HTTP text `from=` and JSON `peer` are the **response URL's host and port** (the final URL when following redirects), not a measured socket endpoint or proof that the origin was contacted. These existing output labels and proxy support are retained for compatibility; any transport-peer field or direct-only policy needs separate review.
 
 ```console
 $ clockping http --help
@@ -409,6 +413,7 @@ The Docker Compose E2E test network can be run directly when real TCP, HTTP, ICM
 $ make check
 $ actionlint .github/workflows/checks.yml
 $ python3 tests/release_gate.py
+$ cargo build && python3 tests/http_proxy_contract.py
 $ cargo run --quiet -- completion bash | diff - completions/clockping.bash
 $ cargo run --quiet -- completion zsh | diff - completions/_clockping
 $ cargo run --quiet -- completion fish | diff - completions/clockping.fish
