@@ -78,11 +78,6 @@ async fn run() -> anyhow::Result<ExitCode> {
                 icmp::run_external(external, output).await?;
             }
             IcmpEngine::Native(config) => {
-                let metrics = metrics_options
-                    .take()
-                    .expect("metrics options should be consumed once")
-                    .into_reporter()?
-                    .map(|reporter| reporter.shared());
                 let quiet = config.quiet;
                 let output = make_output(
                     timestamp,
@@ -106,6 +101,11 @@ async fn run() -> anyhow::Result<ExitCode> {
                             .context("failed to initialize native ICMP prober")?,
                     );
                 }
+                let metrics = metrics_options
+                    .take()
+                    .expect("metrics options should be consumed once")
+                    .into_reporter()?
+                    .map(|reporter| reporter.shared());
                 let summaries =
                     run_probers(probers, runner_config, output, quiet, metrics.clone()).await?;
                 finish_metrics(metrics).await;
@@ -113,11 +113,6 @@ async fn run() -> anyhow::Result<ExitCode> {
             }
         },
         Command::Tcp(command) => {
-            let metrics = metrics_options
-                .take()
-                .expect("metrics options should be consumed once")
-                .into_reporter()?
-                .map(|reporter| reporter.shared());
             let quiet = command.quiet;
             let output = make_output(timestamp, timestamp_format.clone(), json, colored, false);
             let runner_config = RunnerConfig {
@@ -134,17 +129,17 @@ async fn run() -> anyhow::Result<ExitCode> {
                         .context("failed to initialize TCP prober")?,
                 );
             }
+            let metrics = metrics_options
+                .take()
+                .expect("metrics options should be consumed once")
+                .into_reporter()?
+                .map(|reporter| reporter.shared());
             let summaries =
                 run_probers(probers, runner_config, output, quiet, metrics.clone()).await?;
             finish_metrics(metrics).await;
             exit_code = exit_code_for_summaries(&summaries);
         }
         Command::Http(command) => {
-            let metrics = metrics_options
-                .take()
-                .expect("metrics options should be consumed once")
-                .into_reporter()?
-                .map(|reporter| reporter.shared());
             let quiet = command.quiet;
             let output = make_output(timestamp, timestamp_format.clone(), json, colored, false);
             let runner_config = RunnerConfig {
@@ -179,17 +174,17 @@ async fn run() -> anyhow::Result<ExitCode> {
                     .context("failed to initialize HTTP prober")?,
                 );
             }
+            let metrics = metrics_options
+                .take()
+                .expect("metrics options should be consumed once")
+                .into_reporter()?
+                .map(|reporter| reporter.shared());
             let summaries =
                 run_probers(probers, runner_config, output, quiet, metrics.clone()).await?;
             finish_metrics(metrics).await;
             exit_code = exit_code_for_summaries(&summaries);
         }
         Command::Gtp(command) => {
-            let metrics = metrics_options
-                .take()
-                .expect("metrics options should be consumed once")
-                .into_reporter()?
-                .map(|reporter| reporter.shared());
             let output = make_output(timestamp, timestamp_format.clone(), json, colored, false);
             let (variant, args) = match command.command {
                 cli::GtpSubcommand::V1u(args) => (GtpVariant::V1u, args),
@@ -210,6 +205,11 @@ async fn run() -> anyhow::Result<ExitCode> {
                         .context("failed to initialize GTP prober")?,
                 );
             }
+            let metrics = metrics_options
+                .take()
+                .expect("metrics options should be consumed once")
+                .into_reporter()?
+                .map(|reporter| reporter.shared());
             let summaries =
                 run_probers(probers, runner_config, output, quiet, metrics.clone()).await?;
             finish_metrics(metrics).await;

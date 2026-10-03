@@ -43,6 +43,31 @@ fn writes_jsonl_metrics_file_without_replacing_stdout() {
 }
 
 #[test]
+fn failed_later_target_initialization_preserves_existing_metrics_file() {
+    for format in ["jsonl", "prometheus"] {
+        let path = temp_metrics_path(format);
+        fs::write(&path, "previous metrics\n").unwrap();
+        let path_arg = path.to_string_lossy();
+        let result = run_clockping_raw(&[
+            "--metrics.file",
+            &path_arg,
+            "--metrics.format",
+            format,
+            "tcp",
+            "-6",
+            "-c",
+            "1",
+            "[::1]:1",
+            "127.0.0.1:1",
+        ]);
+        assert!(!result.status.success(), "invalid later target must fail");
+        assert_contains(&combined_output(&result), "failed to initialize TCP prober");
+        assert_eq!(fs::read_to_string(&path).unwrap(), "previous metrics\n");
+        fs::remove_file(path).unwrap();
+    }
+}
+
+#[test]
 fn writes_prometheus_metrics_file_with_labels() {
     let target = spawn_tcp_acceptor(1);
     let metrics_file = temp_metrics_path("prom");
