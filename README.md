@@ -403,18 +403,23 @@ The Docker Compose E2E test network can be run directly when real TCP, HTTP, ICM
 
 ```console
 $ make check
+$ actionlint .github/workflows/checks.yml
+$ python3 tests/release_gate.py
+$ cargo run --quiet -- completion bash | diff - completions/clockping.bash
+$ cargo run --quiet -- completion zsh | diff - completions/_clockping
+$ cargo run --quiet -- completion fish | diff - completions/clockping.fish
 $ docker compose -f docker-compose.test.yml up --build --abort-on-container-exit --exit-code-from sut
 ```
 
 ### Release
 
-Release workflows are kept as `.yml.disabled` files, so releases are driven from a local machine instead of GitHub Actions.
+The lightweight PR checks run `make check` and validate the tracked completions; the Docker-based Linux E2E test above remains a manual check. Release/image publishing workflows remain disabled, so releases are driven from a local machine instead of GitHub Actions.
 
 ```console
 $ make release TAG=v1.0.0
 ```
 
-The release target builds tag-named `dist/` binaries and checksums, creates or updates the GitHub Release, uploads the artifacts, and publishes the Homebrew formula.
+The release target requires a clean working tree and runs `make check` before any tag, build, push, upload, or Homebrew update. It then builds tag-named `dist/` binaries and checksums, creates or updates the GitHub Release, uploads the artifacts, and publishes the Homebrew formula.
 It expects `gh` to be authenticated, Docker to be available for Linux release builds, and [`../homebrew-clockping`](https://github.com/mi2428/homebrew-clockping) to be a clean local checkout of the tap repo.
 Set `HOMEBREW_TAP=0` to skip the Homebrew tap update.
 

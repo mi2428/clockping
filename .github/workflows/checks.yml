@@ -1,0 +1,26 @@
+name: PR Checks
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - run: rustup toolchain install 1.95.0 --profile minimal --component clippy --component rustfmt
+      - run: make check
+      - name: Check release gate without publishing
+        run: python3 tests/release_gate.py
+      - name: Check tracked completions
+        run: |
+          cargo run --quiet -- completion bash | diff - completions/clockping.bash
+          cargo run --quiet -- completion zsh | diff - completions/_clockping
+          cargo run --quiet -- completion fish | diff - completions/clockping.fish

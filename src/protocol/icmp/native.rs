@@ -84,10 +84,10 @@ impl NativeIcmpProber {
         let client = Client::new(&builder.build())?;
         let ident = next_ping_identifier();
         let mut pinger = client.pinger(host, ident).await;
-        if host.is_ipv6() {
-            if let Some(interface_index) = interface_index {
-                pinger.scope_id(interface_index.get());
-            }
+        if host.is_ipv6()
+            && let Some(interface_index) = interface_index
+        {
+            pinger.scope_id(interface_index.get());
         }
         pinger.timeout(config.timeout);
 
@@ -119,7 +119,7 @@ fn bind_interface(
     #[cfg(any(target_os = "android", target_os = "linux"))]
     {
         let _ = interface_index;
-        return Ok(builder.interface(interface));
+        Ok(builder.interface(interface))
     }
 
     #[cfg(any(
@@ -133,7 +133,7 @@ fn bind_interface(
     ))]
     {
         let _ = interface;
-        return Ok(builder.interface_index(interface_index));
+        Ok(builder.interface_index(interface_index))
     }
 
     #[cfg(not(any(

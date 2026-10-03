@@ -253,6 +253,7 @@ pushed_tag=0
 
 cd "$$(git rev-parse --show-toplevel)"
 clean_git_dir . "working tree"
+run "$$RELEASE_MAKE" check
 need git
 need gh
 need shasum
