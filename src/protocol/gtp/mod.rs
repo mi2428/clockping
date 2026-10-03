@@ -96,6 +96,9 @@ impl GtpProber {
                 Ok(Err(error)) => return Err(ProbeOutcome::Error(error.to_string())),
                 Err(_) => return Err(ProbeOutcome::Timeout { detail: Vec::new() }),
             };
+            if peer != self.remote {
+                continue;
+            }
 
             match self.variant.codec().decode_echo_reply(&buf[..len]) {
                 Ok(reply) if reply.sequence == expected_sequence => return Ok((reply, peer)),
@@ -171,5 +174,53 @@ mod tests {
         let outcome = prober.probe(0).await;
         assert!(matches!(outcome, ProbeOutcome::Reply { .. }));
         server_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn only_the_requested_peer_and_sequence_can_reply() {
+        for variant in [GtpVariant::V1u, GtpVariant::V1c, GtpVariant::V2c] {
+            let server = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+            let impostor = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+            let mut prober = GtpProber::new(
+                variant,
+                "127.0.0.1".to_string(),
+                Some(server.local_addr().unwrap().port()),
+                Duration::from_millis(100),
+            )
+            .await
+            .unwrap();
+
+            let probe = async {
+                let mut buf = [0; 64];
+                let (len, peer) = server.recv_from(&mut buf).await.unwrap();
+                let mut reply = buf[..len].to_vec();
+                reply[1] = 2;
+                impostor.send_to(&reply, peer).await.unwrap();
+                let seq_index = if variant == GtpVariant::V2c { 4 } else { 8 };
+                reply[seq_index] ^= 1;
+                server.send_to(&reply, peer).await.unwrap();
+                reply[seq_index] ^= 1;
+                // Both invalid replies must be skipped before accepting the real peer.
+                tokio::time::sleep(Duration::from_millis(10)).await;
+                server.send_to(&reply, peer).await.unwrap();
+            };
+            let (outcome, ()) = tokio::join!(prober.probe(7), probe);
+            assert!(
+                matches!(outcome, ProbeOutcome::Reply { peer, .. } if peer == server.local_addr().unwrap().to_string()),
+                "{variant:?}"
+            );
+
+            let probe = async {
+                let mut buf = [0; 64];
+                let (len, peer) = server.recv_from(&mut buf).await.unwrap();
+                buf[1] = 2;
+                impostor.send_to(&buf[..len], peer).await.unwrap();
+            };
+            let (outcome, ()) = tokio::join!(prober.probe(8), probe);
+            assert!(
+                matches!(outcome, ProbeOutcome::Timeout { .. }),
+                "{variant:?}: {outcome:?}"
+            );
+        }
     }
 }
