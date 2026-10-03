@@ -54,6 +54,9 @@ async fn run() -> anyhow::Result<ExitCode> {
     let metrics_enabled = metrics_options.is_enabled();
     let mut metrics_options = Some(metrics_options);
     let cli = Cli::parse_from(cli_args);
+    if let Some(format) = &cli.timestamp_format {
+        TimestampFormatter::validate_custom_format(format)?;
+    }
     let timestamp = cli.timestamp;
     let timestamp_format = cli.timestamp_format;
     let json = cli.output_format.is_json();

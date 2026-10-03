@@ -17,6 +17,17 @@ pub struct TimestampFormatter {
 }
 
 impl TimestampFormatter {
+    pub fn validate_custom_format(format: &str) -> anyhow::Result<()> {
+        if Local::now()
+            .format(format)
+            .write_to(&mut String::new())
+            .is_err()
+        {
+            anyhow::bail!("invalid --ts.format: {format:?}");
+        }
+        Ok(())
+    }
+
     pub fn new(kind: TimestampKind, format: Option<String>) -> Self {
         Self { kind, format }
     }
@@ -55,5 +66,20 @@ mod tests {
         let formatter = TimestampFormatter::new(TimestampKind::None, None);
         let ts = Local.with_ymd_and_hms(2026, 4, 25, 12, 34, 56).unwrap();
         assert_eq!(formatter.format(ts), None);
+    }
+
+    #[test]
+    fn custom_format_validation_rejects_invalid_directives() {
+        for format in ["%Q", "%", "%#z", "%Y/%m/%d %H:%M", "literal %% text"] {
+            assert_eq!(
+                TimestampFormatter::validate_custom_format(format).is_ok(),
+                matches!(format, "%Y/%m/%d %H:%M" | "literal %% text"),
+                "{format}"
+            );
+        }
+        // Internal format items include both valid fractions and parse-only offsets.
+        for format in ["", "%3f %6f %9f", "%z %:z %::z %:::z %Z", "%+ %c %s"] {
+            TimestampFormatter::validate_custom_format(format).unwrap();
+        }
     }
 }

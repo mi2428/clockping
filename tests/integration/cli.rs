@@ -1,4 +1,5 @@
 use std::{
+    fs,
     io::{BufRead, BufReader, Read},
     process::{Command, Stdio},
     thread,
@@ -31,6 +32,53 @@ fn tcp_target_requires_explicit_port() {
         "missing TCP port should fail\n{combined}"
     );
     assert_contains(&combined, "TCP target must include a port");
+}
+
+#[test]
+fn invalid_timestamp_format_fails_before_metrics_file_is_opened() {
+    let metrics_file = temp_metrics_path("jsonl");
+    fs::write(&metrics_file, "sentinel").unwrap();
+    let path = metrics_file.to_str().unwrap();
+    for format in ["%Q", "%", "%#z"] {
+        let output = run_clockping_raw(&[
+            "--metrics.file",
+            path,
+            "--ts.format",
+            format,
+            "tcp",
+            "-c",
+            "0",
+            "127.0.0.1:1",
+        ]);
+        assert!(!output.status.success());
+        assert_contains(&combined_output(&output), "invalid --ts.format");
+        assert_eq!(fs::read_to_string(&metrics_file).unwrap(), "sentinel");
+
+        let output = run_clockping_raw(&[
+            "--ts.format",
+            format,
+            "icmp",
+            "--pinger",
+            "/nonexistent-clockping-pinger",
+        ]);
+        assert!(!output.status.success());
+        assert_contains(&combined_output(&output), "invalid --ts.format");
+    }
+    fs::remove_file(&metrics_file).unwrap();
+
+    let output = run_clockping_raw(&[
+        "--ts.preset",
+        "none",
+        "--ts.format",
+        "STAMP",
+        "--out.format",
+        "json",
+        "tcp",
+        "-c",
+        "0",
+        "127.0.0.1:1",
+    ]);
+    assert!(output.status.success(), "{}", combined_output(&output));
 }
 
 #[test]
