@@ -42,6 +42,22 @@ $ make -C clockping install
 Pick a probe mode, pass one or more targets, and let clockping print timestamped probe events until the count, deadline, or interrupt stops the run.
 Output and metrics options are global, so they can be placed before or after the mode name.
 
+### DNS and long-running probes
+
+A hostname in TCP, native ICMP, or GTP identifies an **initial DNS snapshot**, not a continuously refreshed service:
+
+| Mode | Address selection during a run |
+| --- | --- |
+| TCP | Resolve once at initialization, filter with `-4`/`-6`, then cycle through that initial list, one address per probe. A failed connection does not try the next address within the same probe. |
+| Native ICMP | Resolve once, select the first address matching `-4`/`-6`, and retain its pinger for the run. |
+| GTP (all variants) | Resolve once, select the first address, and retain that remote address and UDP socket. |
+| HTTP | Use the long-lived HTTP client's resolver, proxy routing, and connection pool. This is not the same startup snapshot, but there is no guaranteed DNS refresh interval. |
+| External `icmp --pinger` | Resolution and address selection belong to the external command. |
+
+DNS changes and TTL expiry do not replace the TCP/native ICMP/GTP snapshot. Restart the command to take a new snapshot; automatic refresh/failover is a separate feature, not current behavior. IP literals remain fixed endpoints. Invalid configuration or startup resolution/socket initialization errors abort initialization rather than silently falling back or starting a partial run.
+
+Evidence: `TcpProber::new` stores `resolved`, and `probe` uses only `next_target`; `NativeIcmpProber::new` resolves before constructing its retained pinger, and `probe` uses that pinger; `GtpProber::new` stores `remote`/`socket`, and `probe` sends to that remote. The runner retains these probers instead of reconstructing them. `cargo test initial_` verifies TCP snapshot cycling and all GTP variants using controlled loopback endpoints and a deliberately different target label. This is equivalent stored-address characterization, not a claim that live DNS failover or privileged native ICMP was tested.
+
 ```console
 $ clockping --help
 

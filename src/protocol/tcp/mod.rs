@@ -132,6 +132,30 @@ mod tests {
         assert_eq!(normalize_tcp_target("[::1]:443").unwrap(), "[::1]:443");
     }
 
+    #[tokio::test]
+    async fn tcp_probes_use_the_initial_address_snapshot() {
+        let first = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let second = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let first_addr = first.local_addr().unwrap();
+        let second_addr = second.local_addr().unwrap();
+        // Inject the startup DNS result; the label deliberately cannot connect.
+        let mut prober = TcpProber {
+            target: "localhost:0".to_string(),
+            resolved: vec![first_addr, second_addr],
+            timeout: Duration::from_secs(1),
+            next_addr: 0,
+        };
+        for (seq, expected) in [first_addr, second_addr, first_addr, second_addr]
+            .into_iter()
+            .enumerate()
+        {
+            match prober.probe(seq as u64).await {
+                ProbeOutcome::Reply { peer, .. } => assert_eq!(peer, expected.to_string()),
+                other => panic!("unexpected outcome: {other:?}"),
+            }
+        }
+    }
+
     #[test]
     fn tcp_target_rejects_invalid_port() {
         assert!(normalize_tcp_target("example.com:https").is_err());

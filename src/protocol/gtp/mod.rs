@@ -250,4 +250,40 @@ mod tests {
             );
         }
     }
+
+    #[tokio::test]
+    async fn gtp_probes_keep_the_initial_remote_and_socket() {
+        for variant in [GtpVariant::V1u, GtpVariant::V1c, GtpVariant::V2c] {
+            let server = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+            let remote = server.local_addr().unwrap();
+            let server_task = tokio::spawn(async move {
+                let mut buf = [0_u8; 256];
+                for _ in 0..2 {
+                    let (len, peer) = server.recv_from(&mut buf).await.unwrap();
+                    buf[1] = 2; // Echo Response; preserve the request sequence.
+                    server.send_to(&buf[..len], peer).await.unwrap();
+                }
+            });
+            let mut prober = GtpProber::new(
+                variant,
+                "127.0.0.1".to_string(),
+                Some(remote.port()),
+                Duration::from_secs(1),
+            )
+            .await
+            .unwrap();
+            let local = prober.socket.local_addr().unwrap();
+            // A changed label is not a new DNS result or a destination change.
+            prober.target = "localhost:0".to_string();
+            for seq in 0..2 {
+                match prober.probe(seq).await {
+                    ProbeOutcome::Reply { peer, .. } => assert_eq!(peer, remote.to_string()),
+                    other => panic!("unexpected outcome: {other:?}"),
+                }
+                assert_eq!(prober.remote, remote);
+                assert_eq!(prober.socket.local_addr().unwrap(), local);
+            }
+            server_task.await.unwrap();
+        }
+    }
 }
