@@ -235,6 +235,50 @@ fn slash_grouping_put_and_delete_use_the_same_base64_path() {
 }
 
 #[test]
+fn reserved_push_labels_fail_before_probes_or_file_initialization() {
+    use std::{net::TcpListener, process::Command};
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let target = listener.local_addr().unwrap().to_string();
+    for name in ["job", "protocol", "target", "status"] {
+        for from_env in [false, true] {
+            let path = temp_metrics_path("jsonl");
+            fs::write(&path, "previous metrics\n").unwrap();
+            let label = format!("{name}=override");
+            let mut command = Command::new(clockping_bin());
+            command.env_remove("CLOCKPING_PUSH_LABELS").args([
+                "--push.url",
+                "http://127.0.0.1:1",
+                "--metrics.file",
+                path.to_str().unwrap(),
+                "tcp",
+                "-c",
+                "1",
+                &target,
+            ]);
+            if from_env {
+                command.env("CLOCKPING_PUSH_LABELS", &label);
+            } else {
+                command.args(["--push.label", &label]);
+            }
+            let result = command.output().unwrap();
+            assert!(!result.status.success());
+            assert_contains(
+                &combined_output(&result),
+                &format!("name '{name}' is reserved"),
+            );
+            assert_eq!(fs::read_to_string(&path).unwrap(), "previous metrics\n");
+            assert_eq!(
+                listener.accept().unwrap_err().kind(),
+                std::io::ErrorKind::WouldBlock
+            );
+            fs::remove_file(path).unwrap();
+        }
+    }
+}
+
+#[test]
 fn pushes_window_metrics_to_pushgateway() {
     let target = spawn_tcp_acceptor(2);
     let (push_url, requests) = spawn_pushgateway_capture();

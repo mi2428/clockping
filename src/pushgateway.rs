@@ -296,7 +296,7 @@ pub(crate) fn is_valid_label_name(name: &str) -> bool {
 }
 
 pub(crate) fn is_reserved_label_name(name: &str) -> bool {
-    name == "job"
+    matches!(name, "job" | "protocol" | "target" | "status")
 }
 
 #[derive(Debug)]
@@ -569,9 +569,17 @@ mod tests {
 
     #[test]
     fn rejects_invalid_labels() {
-        for (name, value) in [("9bad", "value"), ("job", "value"), ("ok", "")] {
+        for (name, value) in [
+            ("9bad", "value"),
+            ("job", "value"),
+            ("protocol", "value"),
+            ("target", "value"),
+            ("status", "value"),
+            ("ok", ""),
+        ] {
             assert!(validate_label(name, value).is_err());
         }
+        assert!(validate_label("site", "custom").is_ok());
     }
 
     #[test]
