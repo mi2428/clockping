@@ -151,7 +151,9 @@ fn bind_interface(
         let _ = builder;
         let _ = interface;
         let _ = interface_index;
-        anyhow::bail!("interface selection by name is not supported on this platform; use a source address with -I");
+        anyhow::bail!(
+            "interface selection by name is not supported on this platform; use a source address with -I"
+        );
     }
 }
 
@@ -169,8 +171,9 @@ fn bind_interface(
 fn interface_index_from_name(interface: &str) -> anyhow::Result<NonZeroU32> {
     let interface = CString::new(interface)?;
     let index = unsafe { libc::if_nametoindex(interface.as_ptr()) };
-    NonZeroU32::new(index)
-        .ok_or_else(|| anyhow::anyhow!("unknown network interface: {}", interface.to_string_lossy()))
+    NonZeroU32::new(index).ok_or_else(|| {
+        anyhow::anyhow!("unknown network interface: {}", interface.to_string_lossy())
+    })
 }
 
 #[cfg(not(any(
@@ -185,7 +188,9 @@ fn interface_index_from_name(interface: &str) -> anyhow::Result<NonZeroU32> {
     target_os = "solaris",
 )))]
 fn interface_index_from_name(_interface: &str) -> anyhow::Result<NonZeroU32> {
-    anyhow::bail!("interface selection by name is not supported on this platform; use a source address with -I")
+    anyhow::bail!(
+        "interface selection by name is not supported on this platform; use a source address with -I"
+    )
 }
 
 async fn resolve_icmp_host(destination: &str, ipv4: bool, ipv6: bool) -> anyhow::Result<IpAddr> {
@@ -264,6 +269,9 @@ mod tests {
     #[test]
     fn invalid_interface_name_is_rejected() {
         let error = interface_index_from_name("clockping-invalid-interface").unwrap_err();
-        assert_eq!(error.to_string(), "unknown network interface: clockping-invalid-interface");
+        assert_eq!(
+            error.to_string(),
+            "unknown network interface: clockping-invalid-interface"
+        );
     }
 }
