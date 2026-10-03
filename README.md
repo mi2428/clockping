@@ -106,7 +106,7 @@ Supported file formats are listed below.
 
 The included `docker-compose.yml` provides a local visualization stack.
 Run `docker compose up` to start Pushgateway, Prometheus, and Grafana.
-It exposes Pushgateway on `:9091`, Prometheus on `:9090`, and Grafana on `:3000`.
+By default it binds Pushgateway to `127.0.0.1:9091`, Prometheus to `127.0.0.1:9090`, and Grafana to `127.0.0.1:3000`. Set `PUSHGATEWAY_PORT`, `PROMETHEUS_PORT`, or `GRAFANA_PORT` to change host ports. For intentional remote access, set `OBSERVABILITY_HOST` to the desired host interface, configure a strong `GRAFANA_ADMIN_PASSWORD`, and protect access to all three services (especially the unauthenticated Pushgateway and Prometheus) with a firewall and authenticated TLS reverse proxy. The default Grafana credentials are suitable only for local development.
 
 ```text
 $ clockping --metrics.file clockping.jsonl tcp -c 5 example.com:443
