@@ -81,13 +81,10 @@ impl PushGateway {
 
         let mut url = config.endpoint;
         let mut path = url.path().trim_end_matches('/').to_owned();
-        path.push_str("/metrics/job/");
-        path.push_str(&encode_path_segment(&config.job));
+        path.push_str("/metrics");
+        append_grouping_label(&mut path, "job", &config.job);
         for (name, value) in config.labels {
-            path.push('/');
-            path.push_str(&encode_path_segment(&name));
-            path.push('/');
-            path.push_str(&encode_path_segment(&value));
+            append_grouping_label(&mut path, &name, &value);
         }
         url.set_path(&path);
 
@@ -330,6 +327,33 @@ fn encode_path_segment(raw: &str) -> String {
     encoded
 }
 
+fn append_grouping_label(path: &mut String, name: &str, value: &str) {
+    path.push('/');
+    path.push_str(name); // Names have already passed ASCII label validation.
+    if value.contains('/') || matches!(value, "." | "..") {
+        path.push_str("@base64/");
+        path.push_str(&encode_base64url(value.as_bytes()));
+    } else {
+        path.push('/');
+        path.push_str(&encode_path_segment(value));
+    }
+}
+
+fn encode_base64url(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    let mut encoded = String::with_capacity((bytes.len() * 4).div_ceil(3));
+    for chunk in bytes.chunks(3) {
+        let bits = chunk
+            .iter()
+            .fold(0_u32, |bits, &byte| (bits << 8) | u32::from(byte))
+            << (8 * (3 - chunk.len()));
+        for index in 0..chunk.len() + 1 {
+            encoded.push(ALPHABET[((bits >> (18 - 6 * index)) & 63) as usize] as char);
+        }
+    }
+    encoded
+}
+
 #[derive(Debug, Clone, Copy)]
 struct EncodedPathByte {
     bytes: [u8; 3],
@@ -382,8 +406,158 @@ mod tests {
 
         assert_eq!(
             gateway.url().as_str(),
-            "http://127.0.0.1:9091/base/metrics/job/clock%20job/scenario/sample%231/site/tokyo%2Ftest"
+            "http://127.0.0.1:9091/base/metrics/job/clock%20job/scenario/sample%231/site@base64/dG9reW8vdGVzdA"
         );
+    }
+
+    #[test]
+    fn grouping_values_handle_slash_unicode_percent_and_dot_segments() {
+        let mut path = String::new();
+        for (name, value) in [
+            ("job", "jobs/東京"),
+            ("site", "東京 #%"),
+            ("dot", ".."),
+            ("literal", "%2F"),
+        ] {
+            append_grouping_label(&mut path, name, value);
+        }
+        assert_eq!(
+            path,
+            "/job@base64/am9icy_mnbHkuqw/site/%E6%9D%B1%E4%BA%AC%20%23%25/dot@base64/Li4/literal/%252F"
+        );
+        for (raw, expected) in [("f", "Zg"), ("fo", "Zm8"), ("foo", "Zm9v"), ("/", "Lw")] {
+            assert_eq!(encode_base64url(raw.as_bytes()), expected);
+        }
+    }
+
+    #[tokio::test]
+    #[ignore = "requires an approved native Pushgateway binary in CLOCKPING_TEST_PUSHGATEWAY_BIN"]
+    async fn real_pushgateway_grouping_round_trip() {
+        use std::{
+            net::TcpListener,
+            process::{Child, Command, Stdio},
+            time::Instant,
+        };
+
+        struct GatewayProcess(Child);
+        impl Drop for GatewayProcess {
+            fn drop(&mut self) {
+                let _ = self.0.kill();
+                self.0.wait().expect("reap Pushgateway child");
+            }
+        }
+        let binary = std::env::var("CLOCKPING_TEST_PUSHGATEWAY_BIN").expect("native binary path");
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        drop(listener);
+        let _process = GatewayProcess(
+            Command::new(binary)
+                .arg(format!("--web.listen-address={address}"))
+                .arg("--web.route-prefix=/base")
+                .stdout(Stdio::null())
+                .stderr(Stdio::inherit())
+                .spawn()
+                .unwrap(),
+        );
+        let client = Client::builder()
+            .timeout(Duration::from_millis(500))
+            .build()
+            .unwrap();
+        let endpoint = format!("http://{address}/base");
+        let started = Instant::now();
+        loop {
+            if client
+                .get(format!("{endpoint}/-/ready"))
+                .send()
+                .await
+                .is_ok_and(|r| r.status().is_success())
+            {
+                break;
+            }
+            assert!(
+                started.elapsed() < Duration::from_secs(5),
+                "Pushgateway startup timed out"
+            );
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        for (job, site) in [
+            ("jobs/東京", "region/site"),
+            ("clock job", "東京 #%"),
+            ("..", "."),
+        ] {
+            let gateway = PushGateway::new(PushGatewayConfig {
+                endpoint: Url::parse(&endpoint).unwrap(),
+                job: job.to_owned(),
+                labels: vec![("site".to_owned(), site.to_owned())],
+                timeout: Duration::from_secs(1),
+                retries: 0,
+                user_agent: "clockping/test".to_owned(),
+                metric_prefix: "clockping".to_owned(),
+                delete_on_finish: true,
+            })
+            .unwrap();
+            let sample = |target: &str| ProbeMetrics {
+                timestamp_unix_seconds: 1.0,
+                protocol: "tcp".to_owned(),
+                target: target.to_owned(),
+                seq: 0,
+                status: "reply",
+                sent: 1,
+                received: 1,
+                lost: 0,
+                loss_pct: 0.0,
+                up: 1.0,
+                rtt_seconds: Some(0.001),
+                bytes: None,
+                ttl: None,
+            };
+            gateway
+                .push_many(&[sample("one:443"), sample("two:443")])
+                .await
+                .unwrap();
+            let response = client
+                .get(format!("{endpoint}/api/v1/metrics"))
+                .send()
+                .await
+                .unwrap();
+            assert!(response.status().is_success());
+            let groups: serde_json::Value =
+                serde_json::from_str(&response.text().await.unwrap()).unwrap();
+            let groups = groups["data"].as_array().unwrap();
+            assert_eq!(groups.len(), 1);
+            assert_eq!(groups[0]["labels"]["job"], job);
+            assert_eq!(groups[0]["labels"]["site"], site);
+            let samples = groups[0]["clockping_probe_sent"]["metrics"]
+                .as_array()
+                .unwrap();
+            assert_eq!(samples.len(), 2);
+            for target in ["one:443", "two:443"] {
+                assert!(
+                    samples
+                        .iter()
+                        .any(|sample| sample["labels"]["target"] == target)
+                );
+            }
+            gateway.delete().await.unwrap();
+            let started = Instant::now();
+            loop {
+                let response = client
+                    .get(format!("{endpoint}/api/v1/metrics"))
+                    .send()
+                    .await
+                    .unwrap();
+                let groups: serde_json::Value =
+                    serde_json::from_str(&response.text().await.unwrap()).unwrap();
+                if groups["data"].as_array().unwrap().is_empty() {
+                    break;
+                }
+                assert!(
+                    started.elapsed() < Duration::from_secs(2),
+                    "DELETE did not remove group"
+                );
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        }
     }
 
     #[test]

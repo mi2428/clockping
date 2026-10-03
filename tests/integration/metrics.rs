@@ -205,6 +205,36 @@ fn pushgateway_metrics_include_multiple_targets() {
 }
 
 #[test]
+fn slash_grouping_put_and_delete_use_the_same_base64_path() {
+    let target = spawn_tcp_acceptor(1);
+    let (push_url, requests) = spawn_pushgateway_capture_n(2);
+    run_clockping(&[
+        "--push.url",
+        &push_url,
+        "--push.job",
+        "jobs/東京",
+        "--push.label",
+        "site=region/site",
+        "--push.delete-on-exit",
+        "tcp",
+        "-c",
+        "1",
+        "-W",
+        "1",
+        &target,
+    ]);
+    for method in ["PUT", "DELETE"] {
+        let request = requests.recv_timeout(Duration::from_secs(3)).unwrap();
+        assert_eq!(
+            request.request_line,
+            format!(
+                "{method} /metrics/job@base64/am9icy_mnbHkuqw/site@base64/cmVnaW9uL3NpdGU HTTP/1.1"
+            )
+        );
+    }
+}
+
+#[test]
 fn pushes_window_metrics_to_pushgateway() {
     let target = spawn_tcp_acceptor(2);
     let (push_url, requests) = spawn_pushgateway_capture();
