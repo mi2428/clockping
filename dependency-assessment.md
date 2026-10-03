@@ -156,3 +156,76 @@ timeouts, unexpected status, or leaked PUT/DELETE requests fail visibly. This
 standalone check is not automatically included in `make test`; run it explicitly
 alongside `make check` when approving a migration. Current standard test/doc
 results and existing full-gate limitations are recorded under #24.
+
+## Surge-ping 0.9 assessment (#26)
+
+**Decision: defer migration; retain 0.8.4.** The assessment and baseline coverage
+are complete, not approval of 0.9 on Linux/macOS. Integrate native maintenance
+from #10 first. A source-level packet-semantics risk, plus missing Linux runtime
+coverage, makes a version-only upgrade inappropriate.
+
+Sources: [0.9.0 release](https://github.com/kolapapa/surge-ping/releases/tag/0.9.0),
+[0.9.1 changelog](https://github.com/kolapapa/surge-ping/blob/0.9.1/CHANGELOG.md),
+`cargo info surge-ping@0.9.1 --verbose`, and the published 0.8.4/0.9.1
+`config.rs`, `client.rs`, `ping.rs`, and ICMP decoders.
+
+### API, platform, and behavior inventory
+
+- 0.9.0 raises MSRV to 1.85 / edition 2024 and moves socket2 0.5 -> 0.6,
+  thiserror 1 -> 2, rand 0.9 -> 0.10, and pnet_packet 0.34 -> 0.35.
+  Our toolchain already supports its MSRV, and our direct socket2 is 0.6.
+  Clockping does not consume the breaking public `AsyncSocket::get_type()`
+  socket2 type. A future migration needs the manifest/lock update; no change to
+  the currently called API signatures was found. This is not a 0.9 build claim.
+- `ConfigBuilder::{kind, ttl, bind, interface, interface_index}`, `Client::new`,
+  `Client::pinger`, `Pinger::{scope_id, timeout, ping}`, packet getters, and
+  `SurgeError::Timeout` remain. Source binding still uses SocketAddr; macOS
+  binding uses the nonzero index and IPv4/IPv6 socket options; Linux interface
+  binding uses SO_BINDTODEVICE. IPv6 scope_id is still applied on send.
+- DGRAM-first/RAW-second socket selection remains. Linux permission diagnostics
+  change; approved runners must already permit ICMP and interface binding.
+  Do not change ping_group_range, grant capabilities, or elevate inside tests.
+- 0.9.1 fixes Client-clone lifetime, duplicate waiter replacement, cancellation
+  cleanup, and ICMP error decoding/routing. These have maintenance value, but
+  the application owns one Client per prober, does not clone it, serializes
+  ping calls per prober, and retains `_client` while its Pinger is alive.
+  Linux DGRAM sockets can use kernel-owned identifiers rather than the hint;
+  do not mistake that for a broken per-prober identifier allocator.
+- **Reject a version-only migration:** 0.9.1 `recv_task` routes intermediate
+  ICMP errors by `packet.real_destination()` (0.8.4 used sender address), and
+  `Pinger::ping` returns that packet as Ok. Clockping's current `probe` maps
+  every Ok V4/V6 packet to `ProbeOutcome::Reply`, without checking EchoReply.
+  Thus newly delivered time-exceeded/unreachable packets can become false
+  successful replies, affecting loss/up/exit status. This is source-level
+  evidence, not a reproduced live-router failure. A reviewed migration must
+  classify packet type at the shared native probe boundary and test it before
+  adoption; do not conceal the change with a fallback to the old dependency.
+
+### Focused coverage and approval checklist
+
+`tests/icmp_smoke.py` is a standalone native-only check requiring no extra
+Python dependency. It uses only lo0/lo and loopback addresses, changes no
+interface, and raises on permission failure, missing IPv6, or unmet assertions.
+
+```sh
+cargo build --locked
+python3 tests/icmp_smoke.py target/debug/clockping
+cargo test --locked protocol::icmp::
+```
+
+| Contract | Evidence / required approval coverage |
+| --- | --- |
+| Successful interface selection | macOS lo0, IPv4 and IPv6: two replies each. Run the same mandatory check on Linux lo with preconfigured privileges. |
+| Invalid interface selection | Both families fail explicitly with unknown-interface error; existing unit test also passes. |
+| Source-address selection | 127.0.0.1 and ::1 binding each receive two replies; add opposite-family/nonlocal source rejection with native validation work. |
+| IPv4/IPv6 | Unbound loopback succeeds for both; IPv6 interface check exercises scope_id assignment, not link-local routing. Add controlled link-local scope and hostname family filtering. |
+| Independent probers | Existing identifier uniqueness unit test passes; two simultaneous same-target probers, sequence 0/1, each receive both replies for both families. Does not inspect on-wire kernel identifiers. |
+| ICMP error packet semantics | Add deterministic IPv4/IPv6 time-exceeded/unreachable and quoted-header fixtures; assert they are not EchoReply/up/success. Required before adopting the new routing. |
+| Socket and lifecycle behavior | Verify DGRAM and RAW permissions, timeout and cancellation on each supported platform; baseline smoke does not force RAW. |
+| Linux/Compose | Existing Compose exercises native IPv4, external ping, and target-down; add mandatory interface/IPv6/source coverage. Docker unavailable, so no Linux/Compose pass is claimed. |
+
+The macOS smoke and eight focused ICMP tests passed with 0.8.4. Run these
+explicit checks on the selected 0.9 candidate, alongside `make check` and
+Compose native scenarios, before approval. Upstream's own platform-skipping
+tests are not a substitute for required project coverage. There is no OSV match
+for the current lock graph; version age alone is not a new security defect.
