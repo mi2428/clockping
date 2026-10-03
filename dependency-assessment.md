@@ -6,7 +6,8 @@ does not by itself establish an enabled vulnerable execution path.
 ## Compatible refresh (#24)
 
 The manifest constraints already permit these releases; only resolution changes
-are needed. Reqwest remains 0.12.28 and surge-ping remains 0.8.4.
+were needed. During #24, reqwest stayed at 0.12.28 (subsequently migrated below)
+and surge-ping remained 0.8.4.
 
 | Dependency | Before | Selected | Declared MSRV |
 | --- | --- | --- | --- |
@@ -81,81 +82,77 @@ alongside syn 2; no application feature is added.
 - Linux, Compose, and scratch runtime checks remain unexecuted because the
   Docker daemon is unavailable; no daemon, interface, or toolchain was changed.
 
-## Reqwest 0.13 assessment (#25)
+## Reqwest 0.13 migration (#25)
 
-**Decision: defer migration; retain 0.12.28 with patched Rustls.** Assessment is
-complete, but this is not migration approval or a claim that 0.13 cannot support
-scratch. There is no version-age defect requiring migration, and the available
-environment cannot validate a new TLS configuration in the scratch release.
-0.12.28 is the latest non-yanked 0.12 release observed, with no OSV match in the
-scan above. Staying on that series is acceptable for now while monitoring
-advisories and upstream maintenance; no indefinite/LTS support guarantee was
-found or assumed. Revisit if a reachable fix is unavailable on 0.12.
+**Implemented: reqwest 0.12.28 -> 0.13.5**, the latest stable non-yanked release
+in the 2026-10-03 crates.io API response (MSRV 1.85; pinned Rust 1.95).
+This supersedes the earlier deferral; no 0.12 fallback remains.
 
 Sources: [0.13.5 changelog](https://github.com/seanmonstar/reqwest/blob/v0.13.5/CHANGELOG.md),
-`cargo info reqwest@0.13.5 --verbose`, and the published
+the published Cargo features, and
 [ClientBuilder source](https://docs.rs/reqwest/0.13.5/src/reqwest/async_impl/client.rs.html).
-Its MSRV is 1.85, below the pinned 1.95; the compiler version is not the blocker.
-The newer series offers DNS error classification, response-header limits, and
-redirect/proxy fixes, but unused protocol features do not justify expanding scope.
 
-### Required changes and rejected shortcut
+### TLS and dependency boundaries
 
-- `rustls-tls-webpki-roots` no longer exists in 0.13. Simply replacing it with
-  `rustls` would select aws-lc and platform verification, changing both provider
-  and trust semantics. **Do not apply this shortcut:** the scratch image copies
-  no OS CA bundle, and substituting `--insecure` is not a solution.
-- Keep `default-features = false`. A reviewed migration must explicitly choose
-  its crypto provider and embed the public roots for **both** `HttpProber::new`
-  and `PushGateway::new`; configuring only the prober leaves HTTPS metrics broken.
-  `rustls-no-provider` is the public feature for retaining an explicit ring
-  provider, but does not itself select embedded roots.
-- `tls_certs_only(...)` disables platform roots but takes full certificates,
-  whereas webpki-roots supplies trust anchors. It requires a maintained embedded
-  DER/PEM public-root bundle, not a host file or a lossy anchor conversion.
-  Alternatively, a preconfigured Rustls config can reuse those anchors, with
-  explicit rustls/webpki-roots dependencies and matching Rustls versions.
-  `tls_backend_preconfigured` is documented as semver-brittle; its BuiltRustls
-  branch bypasses the builder's certificate-verification setup, so
-  `--insecure` must not be assumed to work without separate reviewed handling.
-- Prefer `tls_backend_rustls` / `tls_danger_accept_invalid_certs` if migrating;
-  the old method names remain soft-deprecated aliases in 0.13.5. The used
-  `Method`, `Url`, headers, redirects, timeout, `local_address`, and
-  `dns::{Resolve, Name, Addrs, Resolving}` contracts remain available. The new
-  `dns_resolver` accepts the existing `Arc<IpVersionResolver>` via IntoResolve;
-  an API inventory is not a build/runtime compatibility proof.
-- Leave proxy policy to #27. Both versions auto-detect environment proxies even
-  with the OS `system-proxy` feature disabled. Do not incidentally add that
-  feature or `no_proxy()`, nor HTTP/2, HTTP/3, JSON, query, form, or compression.
+- `default-features = false` remains; only `rustls-no-provider` is enabled.
+  No native TLS, aws-lc, system-proxy, HTTP/2, HTTP/3, compression, JSON, query,
+  or form feature is added. Surge-ping is unchanged by this migration.
+- Both production clients use `src/tls.rs`: embedded webpki-roots 1.0.7 trust
+  anchors and a client-local ring provider, not a global provider installation
+  or OS roots. Rustls 0.23.45 / rustls-webpki 0.103.15 / ring 0.17.14 are retained
+  and Rustls/webpki-roots are now explicit direct dependencies.
+- Reqwest's public `rustls-no-provider` feature pulls in platform-verifier
+  0.7.1 and its platform dependencies. They remain in the dependency graph,
+  but neither client uses that verifier: `tls_backend_preconfigured` supplies
+  the complete Rustls configuration. No CA bundle is copied or loaded.
+- `BuiltRustls` bypasses builder-level certificate settings. HTTP `-k` therefore
+  selects an explicit verifier that bypasses chain, hostname and expiry checks
+  but delegates TLS 1.2/1.3 handshake signatures to Rustls. Pushgateway always
+  selects strict WebPKI verification, including for PUT and DELETE.
+- Preconfigured TLS uses type downcasting and is semver-sensitive: future
+  reqwest/Rustls changes must retain matching Rustls types and rerun these tests.
+  A mismatch fails client construction, not a silent backend fallback.
+- Environment proxy routing, custom DNS/address-family selection, methods,
+  headers, redirects, timeout/retry, output and metrics paths are unchanged.
+  `no_proxy()` appears only in isolated test clients, not production builders.
 
-### Regression checklist before any approved migration
+### Runnable regression coverage
 
-| Contract | Current evidence / required follow-up |
+`make check` includes the Rust loopback TLS regressions in
+`tests/tls/regression.rs`. They require Python 3 and OpenSSL, generate disposable
+CA/key files under `target/`, and remove them on completion. Local-root injection
+is test-only; no production trust setting or CLI/schema option was added.
+
+| Contract | Coverage |
 | --- | --- |
-| HTTP HEAD/GET, custom headers, configured status, redirects | Seven existing HTTP tests passed; retain default no-follow and limit 10. Add cross-scheme sensitive-header and redirect-limit cases. |
-| TLS trust and `--insecure` | `tests/tls_smoke.py` passed: plain HTTP, self-signed rejection with zero HTTP requests, explicit insecure success. Add trusted-chain success and isolated expired/hostname-invalid rejection cases. |
-| HTTPS Pushgateway | Same loopback check proves PUT/DELETE still reject the self-signed endpoint even when the HTTP prober uses `--insecure`. Six metrics integration tests passed over HTTP. Add trusted HTTPS PUT/DELETE success, user-agent/content-type/body/grouping-path and retry checks for the selected TLS setup. |
-| IPv4/IPv6 and DNS/redirects | Existing HTTP IPv4 integration and family-mismatch test; add successful IPv6, localhost custom-resolver family filtering, opposite-family redirect rejection and empty-family lookup. |
-| Timeout and header RTT | Retain configured deadline and return after headers without reading a slow response body; add stalled-header and stalled-body fixtures. |
-| Proxy policy | Coordinate the HTTP/HTTPS/NO_PROXY and IP-family interaction matrix with #27; fixtures here isolate inherited proxy settings, not change production policy. |
-| Scratch and platforms | Required release-image HTTP/public-HTTPS and trusted HTTPS Pushgateway smokes with no host CA mount/copy; run on Linux and macOS. Docker unavailable: not exercised, not passed. |
-
-Run the local trust characterization without installing roots or contacting a
-public service:
+| Strict HTTPS / HTTP `-k` | Trusted local-root success, separate unknown-issuer/expired/hostname rejection with zero HTTP requests, explicit certificate bypass success. |
+| TLS signatures | TLS 1.2 and 1.3 succeed with valid signatures and reject deliberately corrupted server signatures even under `-k`. |
+| HTTPS Pushgateway | Strict unknown-root PUT/DELETE rejection and trusted PUT/DELETE success for TLS 1.2/1.3; assert grouping path, user-agent, content-type and body. CLI smoke checks HTTP `-k` never relaxes Pushgateway trust. |
+| HTTP contracts | HEAD/GET, custom headers/status, default no-follow/limit 10, localhost IPv4/IPv6 custom DNS, stalled-header timeout, header-only RTT with withheld body; existing metrics integration tests retain retries/cancel/deadline/file/output checks. |
+| Proxies | Standalone loopback HTTP/HTTPS CONNECT checks: IPv4/IPv6, URL peer, family constraints, HTTPS_PROXY/ALL_PROXY and NO_PROXY, strict rejection and explicit `-k`. |
+| Linux/scratch | Integration gate still required: release-image public HTTPS and HTTPS Pushgateway without host roots. Native macOS tests are not a Linux/scratch runtime pass. |
 
 ```sh
+make check
 cargo build --locked
-python3 tests/tls_smoke.py target/debug/clockping "$SCRATCH_PARENT"
+python3 tests/tls_smoke.py target/debug/clockping target
+python3 tests/http_proxy_contract.py
 cargo test --locked protocol::http::
 cargo test --locked --test integration_test integration::metrics::
 ```
 
-`SCRATCH_PARENT` must be an existing disposable directory. Certificates/keys are
-created only there and removed when the check exits. Missing tools, request
-timeouts, unexpected status, or leaked PUT/DELETE requests fail visibly. This
-standalone check is not automatically included in `make test`; run it explicitly
-alongside `make check` when approving a migration. Current standard test/doc
-results and existing full-gate limitations are recorded under #24.
+The Python smokes are explicit checks, not automatically included in `make test`.
+Missing tools, timeouts, unexpected responses or leaked insecure PUT/DELETE fail
+visibly. The worker does not run containers; Linux/scratch checks are the
+supervisor's post-integration responsibility.
+
+Native macOS verification passed: `make check` (112 unit + 35 integration tests;
+native Pushgateway and Docker E2E explicitly ignored), 11 focused HTTP tests,
+15 focused metrics integration tests, both Python smokes, and
+`cargo check --locked --target x86_64-apple-darwin`. A read-only strict HTTPS
+HEAD to `https://example.com/` also returned 200 using the embedded public roots.
+No external PUT/DELETE was sent. These results do not claim Linux/scratch or
+a new advisory scan of the changed lockfile.
 
 ## Surge-ping 0.9 assessment (#26)
 

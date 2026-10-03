@@ -274,7 +274,7 @@ Metrics Options:
 HTTP mode sends `HEAD` by default and measures time to response headers.
 Use `-X GET` when the endpoint requires a body-capable request.
 Status codes in `--ok-status` count as replies, redirects require `-L`, and repeated `-H 'Name: value'` options add headers.
-HTTPS uses Rustls with embedded webpki roots, so the scratch release image does not need an OS CA bundle.
+HTTPS probing and Pushgateway use reqwest 0.13 with an explicit Rustls ring provider and embedded webpki roots, so the scratch release image does not need an OS CA bundle. Certificate chains, hostname, and expiry are verified by default. HTTP `-k` skips those certificate checks but still verifies TLS handshake signatures; it never relaxes HTTPS Pushgateway verification.
 
 HTTP measures ordinary **proxy-aware HTTP availability**, not necessarily direct-origin connectivity. The client honors the standard `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, and `NO_PROXY` environment settings (including lowercase forms). A successful proxy response can count as a reply even when the origin is unavailable; use `NO_PROXY` for targets that must be contacted directly.
 

@@ -88,7 +88,7 @@ impl PushGateway {
         }
         url.set_path(&path);
 
-        let client = Client::builder()
+        let client = crate::tls::client_builder(false)?
             .timeout(config.timeout)
             .user_agent(config.user_agent)
             .build()
@@ -459,7 +459,8 @@ mod tests {
                 .spawn()
                 .unwrap(),
         );
-        let client = Client::builder()
+        let client = crate::tls::client_builder(false)
+            .unwrap()
             .timeout(Duration::from_millis(500))
             .build()
             .unwrap();
@@ -586,5 +587,51 @@ mod tests {
     fn retry_delay_is_bounded() {
         assert_eq!(retry_delay(0), Duration::from_millis(100));
         assert_eq!(retry_delay(10), Duration::from_secs(1));
+    }
+
+    #[tokio::test]
+    async fn https_push_and_delete_are_strict_and_accept_trusted_local_root() {
+        let fixture = crate::tls::tests::Fixture::new();
+        for version in [&rustls::version::TLS12, &rustls::version::TLS13] {
+            for trusted in [false, true] {
+                let server = fixture.server("valid", version, false, 2);
+                let mut gateway = PushGateway::new(PushGatewayConfig {
+                    endpoint: Url::parse(&format!("{}base/", server.url())).unwrap(),
+                    job: "clock job".to_owned(),
+                    labels: vec![("site".to_owned(), "tokyo/test".to_owned())],
+                    timeout: Duration::from_secs(2),
+                    retries: 0,
+                    user_agent: "clockping/tls-test".to_owned(),
+                    metric_prefix: "clockping".to_owned(),
+                    delete_on_finish: true,
+                })
+                .unwrap();
+                if trusted {
+                    gateway.client = fixture
+                        .builder(false)
+                        .user_agent("clockping/tls-test")
+                        .build()
+                        .unwrap();
+                }
+                let body = "clockping_probe_up{target=\"local\"} 1\n";
+                assert_eq!(gateway.push_body(body).await.is_ok(), trusted);
+                assert_eq!(gateway.delete().await.is_ok(), trusted);
+                let requests = server.requests();
+                if trusted {
+                    let path = "/base/metrics/job/clock%20job/site@base64/dG9reW8vdGVzdA";
+                    assert!(requests[0].starts_with(&format!("PUT {path} HTTP/1.1\r\n")));
+                    assert!(requests[1].starts_with(&format!("DELETE {path} HTTP/1.1\r\n")));
+                    assert!(requests[0].contains(
+                        "\r\ncontent-type: text/plain; version=0.0.4; charset=utf-8\r\n"
+                    ));
+                    assert!(requests[0].ends_with(body));
+                    for request in requests {
+                        assert!(request.contains("\r\nuser-agent: clockping/tls-test\r\n"));
+                    }
+                } else {
+                    assert!(requests.is_empty(), "{requests:?}");
+                }
+            }
+        }
     }
 }

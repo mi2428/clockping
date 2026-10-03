@@ -9,6 +9,7 @@ mod protocol;
 mod pushgateway;
 mod runner;
 mod timefmt;
+mod tls;
 mod version;
 
 use std::{

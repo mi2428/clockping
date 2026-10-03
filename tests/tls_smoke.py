@@ -14,6 +14,42 @@ import tempfile
 import threading
 
 
+def generate_fixtures(directory):
+    """Test-only CA, valid/expired/wrong-name leaves; keys never leave scratch."""
+    def openssl(*args):
+        result = subprocess.run(["openssl", *args], cwd=directory, capture_output=True, text=True)
+        assert result.returncode == 0, (args, result.stderr)
+
+    key_args = ("-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1", "-nodes")
+    openssl("req", "-x509", *key_args, "-days", "2", "-subj", "/CN=Clockping Test Root",
+            "-addext", "basicConstraints=critical,CA:TRUE", "-addext",
+            "keyUsage=critical,keyCertSign,cRLSign", "-keyout", "ca.key", "-out", "ca.pem")
+    openssl("req", "-new", *key_args, "-subj", "/CN=localhost",
+            "-keyout", "server.key", "-out", "server.csr")
+    (directory / "index").write_text("")
+    (directory / "serial").write_text("02\n")
+    (directory / "ca.cnf").write_text(
+        "[ca]\ndefault_ca=local\n[local]\ndatabase=index\nserial=serial\n"
+        "new_certs_dir=.\ncertificate=ca.pem\nprivate_key=ca.key\n"
+        "default_md=sha256\npolicy=policy\n[policy]\ncommonName=supplied\n")
+    for serial, (name, days, san) in enumerate((
+        ("valid", "2", "DNS:localhost,IP:127.0.0.1"),
+        ("expired", "2", "DNS:localhost,IP:127.0.0.1"),
+        ("mismatch", "2", "DNS:wrong.invalid"),
+    ), 1):
+        (directory / "extensions.cnf").write_text(
+            f"basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\n"
+            f"extendedKeyUsage=serverAuth\nsubjectAltName={san}\n")
+        if name == "expired":
+            openssl("ca", "-batch", "-notext", "-config", "ca.cnf", "-in", "server.csr",
+                    "-startdate", "20000101000000Z", "-enddate", "20010101000000Z",
+                    "-extfile", "extensions.cnf", "-out", "expired.pem")
+        else:
+            openssl("x509", "-req", "-in", "server.csr", "-CA", "ca.pem", "-CAkey", "ca.key",
+                    "-set_serial", str(serial), "-days", days, "-extfile", "extensions.cnf",
+                    "-out", f"{name}.pem")
+
+
 class Handler(BaseHTTPRequestHandler):
     def respond(self):
         self.server.methods.append(self.command)
@@ -87,4 +123,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    if sys.argv[1] == "--fixtures":
+        generate_fixtures(Path(sys.argv[2]).resolve(strict=True))
+    else:
+        main()

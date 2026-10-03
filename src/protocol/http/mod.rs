@@ -43,17 +43,13 @@ impl HttpProber {
     pub fn new(config: HttpProberConfig) -> anyhow::Result<Self> {
         let url = normalize_url(&config.target)?;
         ensure_url_matches_ip_version(&url, config.ip_version)?;
-        let mut builder = Client::builder()
-            .use_rustls_tls()
+        let mut builder = crate::tls::client_builder(config.insecure)?
             .timeout(config.timeout)
             .redirect(if config.follow_redirects {
                 Policy::limited(10)
             } else {
                 Policy::none()
             });
-        if config.insecure {
-            builder = builder.danger_accept_invalid_certs(true);
-        }
         if let Some(local_address) = config.ip_version.local_address() {
             builder =
                 builder
@@ -435,6 +431,98 @@ mod tests {
             follow_redirects: false,
             insecure: false,
             ok_statuses: vec![RangeInclusive::new(200, 399)],
+        }
+    }
+
+    #[tokio::test]
+    async fn https_probe_with_trusted_local_root() {
+        let fixture = crate::tls::tests::Fixture::new();
+        for version in [&rustls::version::TLS12, &rustls::version::TLS13] {
+            let server = fixture.server("valid", version, false, 1);
+            let mut prober = HttpProber::new(test_config(server.url())).unwrap();
+            // Root injection is test-only; the production TLS config is otherwise identical.
+            prober.client = fixture.builder(false).build().unwrap();
+            assert!(matches!(prober.probe(0).await, ProbeOutcome::Reply { .. }));
+            assert!(server.requests()[0].starts_with("HEAD / HTTP/1.1\r\n"));
+        }
+    }
+
+    #[tokio::test]
+    async fn http_probe_keeps_default_no_follow_and_ten_redirect_limit() {
+        for follow_redirects in [false, true] {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move {
+                for _ in 0..if follow_redirects { 11 } else { 1 } {
+                    let (mut socket, _) = listener.accept().await.unwrap();
+                    let mut buffer = [0; 1024];
+                    assert!(socket.read(&mut buffer).await.unwrap() > 0);
+                    socket.write_all(b"HTTP/1.1 302 Found\r\nLocation: /next\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await.unwrap();
+                }
+            });
+            let mut config = test_config(address.to_string());
+            config.follow_redirects = follow_redirects;
+            let outcome = HttpProber::new(config).unwrap().probe(0).await;
+            if follow_redirects {
+                assert!(matches!(outcome, ProbeOutcome::Error(_)), "{outcome:?}");
+            } else {
+                assert!(matches!(outcome, ProbeOutcome::Reply { .. }), "{outcome:?}");
+            }
+            server.await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn http_probe_times_out_on_headers_but_does_not_wait_for_body() {
+        for send_headers in [false, true] {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let (release, wait) = tokio::sync::oneshot::channel();
+            let server = tokio::spawn(async move {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut buffer = [0; 1024];
+                assert!(socket.read(&mut buffer).await.unwrap() > 0);
+                if send_headers {
+                    socket
+                        .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n")
+                        .await
+                        .unwrap();
+                }
+                wait.await.unwrap(); // Deliberately withhold the response/body until probe returns.
+            });
+            let mut config = test_config(address.to_string());
+            config.method = Method::GET;
+            config.timeout = Duration::from_millis(150);
+            let outcome = HttpProber::new(config).unwrap().probe(0).await;
+            release.send(()).unwrap();
+            server.await.unwrap();
+            if send_headers {
+                assert!(matches!(outcome, ProbeOutcome::Reply { .. }), "{outcome:?}");
+            } else {
+                assert!(
+                    matches!(outcome, ProbeOutcome::Timeout { .. }),
+                    "{outcome:?}"
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn http_probe_custom_dns_connects_with_selected_ipv4_and_ipv6() {
+        for (host, ip_version) in [("127.0.0.1", IpVersion::V4), ("::1", IpVersion::V6)] {
+            let listener = TcpListener::bind((host, 0)).await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut buffer = [0; 1024];
+                assert!(socket.read(&mut buffer).await.unwrap() > 0);
+                socket.write_all(b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await.unwrap();
+            });
+            let mut config = test_config(format!("http://localhost:{}/", address.port()));
+            config.ip_version = ip_version;
+            let outcome = HttpProber::new(config).unwrap().probe(0).await;
+            assert!(matches!(outcome, ProbeOutcome::Reply { .. }), "{outcome:?}");
+            server.await.unwrap();
         }
     }
 }
