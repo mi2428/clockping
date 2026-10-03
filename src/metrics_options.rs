@@ -122,11 +122,10 @@ impl MetricsOptionState {
             .push_job
             .or_else(|| get_env("CLOCKPING_PUSH_JOB"))
             .unwrap_or_else(|| PushGatewayConfig::DEFAULT_JOB.to_owned());
-        let mut push_labels = get_env("CLOCKPING_PUSH_LABELS")
+        let push_labels = get_env("CLOCKPING_PUSH_LABELS")
             .map(|raw| parse_env_labels("CLOCKPING_PUSH_LABELS", &raw, true))
             .transpose()?
             .unwrap_or_default();
-        push_labels.extend(self.options.push_labels);
         let push_timeout = self
             .options
             .push_timeout
@@ -199,11 +198,18 @@ impl MetricsOptionState {
                     .map(|raw| parse_metrics_format("CLOCKPING_METRICS_FORMAT", &raw))
             })
             .transpose()?;
-        let mut metrics_labels = get_env("CLOCKPING_METRICS_LABELS")
+        let metrics_labels = get_env("CLOCKPING_METRICS_LABELS")
             .map(|raw| parse_env_labels("CLOCKPING_METRICS_LABELS", &raw, false))
             .transpose()?
             .unwrap_or_default();
-        metrics_labels.extend(self.options.metrics_labels);
+        if !informational {
+            reject_duplicate_push_labels(&push_labels)?;
+            reject_duplicate_push_labels(&self.options.push_labels)?;
+            reject_duplicate_labels(&metrics_labels)?;
+            reject_duplicate_labels(&self.options.metrics_labels)?;
+        }
+        let push_labels = merge_label_defaults(push_labels, self.options.push_labels);
+        let metrics_labels = merge_label_defaults(metrics_labels, self.options.metrics_labels);
 
         let seen = SeenMetricsOptions {
             push_label: !push_labels.is_empty(),
@@ -220,7 +226,6 @@ impl MetricsOptionState {
                 seen: &seen,
                 metrics_format,
                 push_job: &push_job,
-                push_labels: &push_labels,
                 metrics_labels: &metrics_labels,
             })?;
         }
@@ -405,7 +410,6 @@ struct ValidationContext<'a> {
     seen: &'a SeenMetricsOptions,
     metrics_format: MetricsFileFormat,
     push_job: &'a str,
-    push_labels: &'a [(String, String)],
     metrics_labels: &'a [(String, String)],
 }
 
@@ -436,8 +440,6 @@ fn validate_option_dependencies(context: ValidationContext<'_>) -> anyhow::Resul
     if context.push_enabled && context.push_job.is_empty() {
         anyhow::bail!("--push.job must not be empty when --push.url is set");
     }
-    reject_duplicate_push_labels(context.push_labels)?;
-    reject_duplicate_labels(context.metrics_labels)?;
     reject_dynamic_metric_labels(context.metrics_labels)?;
     Ok(())
 }
@@ -600,6 +602,17 @@ fn parse_env_labels(
         .map(str::trim)
         .map(|label| parse_label(option, label, reserve_job))
         .collect()
+}
+
+// CLI labels replace same-name defaults; non-conflicting environment labels are retained.
+fn merge_label_defaults(
+    mut defaults: Vec<(String, String)>,
+    overrides: Vec<(String, String)>,
+) -> Vec<(String, String)> {
+    // ponytail: small label lists use a scan; use a key set if label counts become large.
+    defaults.retain(|(name, _)| !overrides.iter().any(|(key, _)| key == name));
+    defaults.extend(overrides);
+    defaults
 }
 
 fn parse_label(option: &str, raw: &str, reserve_job: bool) -> anyhow::Result<(String, String)> {
@@ -973,6 +986,79 @@ mod tests {
                 .to_string()
                 .contains("--metrics.label requires --metrics.format prometheus")
         );
+    }
+
+    #[test]
+    fn cli_labels_override_matching_env_defaults() {
+        for (option, variable, push) in [
+            ("--push.label", "CLOCKPING_PUSH_LABELS", true),
+            ("--metrics.label", "CLOCKPING_METRICS_LABELS", false),
+        ] {
+            let base_args: Vec<OsString> = [
+                "clockping",
+                "--push.url=localhost:9091",
+                "--metrics.file=metrics.prom",
+                "--metrics.format=prometheus",
+                "tcp",
+            ]
+            .into_iter()
+            .map(Into::into)
+            .collect();
+            for defaults in ["site=old,region=east", "region=east", ""] {
+                let mut args = base_args.clone();
+                args.extend([
+                    option.into(),
+                    "site=new".into(),
+                    format!("{option}=cluster=test").into(),
+                ]);
+                let (options, _) = extract_metrics_options_with_env(args, |key| {
+                    (key == variable).then(|| defaults.to_owned())
+                })
+                .unwrap();
+                let labels = if push {
+                    options.push_labels
+                } else {
+                    options.metrics_labels
+                };
+                let mut expected = Vec::new();
+                if !defaults.is_empty() {
+                    expected.push(("region".to_owned(), "east".to_owned()));
+                }
+                expected.extend([
+                    ("site".to_owned(), "new".to_owned()),
+                    ("cluster".to_owned(), "test".to_owned()),
+                ]);
+                assert_eq!(labels, expected, "{option}, {defaults}");
+            }
+
+            for (defaults, explicit, duplicate) in [
+                ("site=old", vec!["site=new", "site=again"], true),
+                ("region=east", vec!["site=new", "site=again"], true),
+                ("site=old,site=again", vec!["site=new"], true),
+                ("site=", vec!["site=new"], false),
+                ("region=east", vec!["bad-name=value"], false),
+                ("region=east", vec!["site="], false),
+                (
+                    "region=east",
+                    vec![if push { "job=bad" } else { "target=bad" }],
+                    false,
+                ),
+            ] {
+                let mut args = base_args.clone();
+                args.extend(
+                    explicit
+                        .into_iter()
+                        .map(|label| format!("{option}={label}").into()),
+                );
+                let error = extract_metrics_options_with_env(args, |key| {
+                    (key == variable).then(|| defaults.to_owned())
+                })
+                .unwrap_err();
+                if duplicate {
+                    assert!(error.to_string().contains("duplicate"), "{error:#}");
+                }
+            }
+        }
     }
 
     #[test]

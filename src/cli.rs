@@ -55,6 +55,8 @@ Metrics Options:
       --metrics.format <FORMAT>           Metrics file format: jsonl or prometheus
       --metrics.label <KEY=VALUE>         Add a Prometheus file sample label. Repeat for multiple labels
       --metrics.prefix <PREFIX>           Prometheus metric name prefix
+
+CLI labels override same-name environment defaults; other defaults are retained.
 ";
 
 #[derive(Debug, Parser)]
@@ -131,6 +133,8 @@ pub struct MetricsCliOptions {
     pub push_job: Option<String>,
 
     /// Add a Pushgateway grouping label. Repeat for multiple labels.
+    ///
+    /// CLI labels override same-name environment defaults; other defaults are retained.
     #[arg(long = "push.label", global = true, value_name = "KEY=VALUE")]
     pub push_labels: Vec<String>,
 
@@ -155,6 +159,8 @@ pub struct MetricsCliOptions {
     pub metrics_format: Option<String>,
 
     /// Add a Prometheus file sample label. Repeat for multiple labels.
+    ///
+    /// CLI labels override same-name environment defaults; other defaults are retained.
     #[arg(long = "metrics.label", global = true, value_name = "KEY=VALUE")]
     pub metrics_labels: Vec<String>,
 

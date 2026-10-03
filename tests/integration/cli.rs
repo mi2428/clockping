@@ -442,6 +442,7 @@ fn mode_help_lists_global_options() {
             "--metrics.format <FORMAT>",
             "--metrics.label <KEY=VALUE>",
             "--metrics.prefix <PREFIX>",
+            "CLI labels override same-name environment defaults",
         ] {
             assert_contains(&combined, expected);
         }
