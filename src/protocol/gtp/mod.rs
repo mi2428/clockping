@@ -223,4 +223,31 @@ mod tests {
             );
         }
     }
+
+    #[tokio::test]
+    async fn malformed_declared_length_never_completes_a_probe() {
+        for variant in [GtpVariant::V1u, GtpVariant::V1c, GtpVariant::V2c] {
+            let server = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+            let mut prober = GtpProber::new(
+                variant,
+                "127.0.0.1".to_string(),
+                Some(server.local_addr().unwrap().port()),
+                Duration::from_millis(100),
+            )
+            .await
+            .unwrap();
+            let send_malformed = async {
+                let mut buf = [0; 64];
+                let (len, peer) = server.recv_from(&mut buf).await.unwrap();
+                buf[1] = 2;
+                buf[2..4].copy_from_slice(&u16::MAX.to_be_bytes());
+                server.send_to(&buf[..len], peer).await.unwrap();
+            };
+            let (outcome, ()) = tokio::join!(prober.probe(0), send_malformed);
+            assert!(
+                matches!(outcome, ProbeOutcome::Timeout { .. }),
+                "{variant:?}: {outcome:?}"
+            );
+        }
+    }
 }
