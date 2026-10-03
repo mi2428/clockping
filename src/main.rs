@@ -315,8 +315,6 @@ fn exit_code_for_summaries(summaries: &[Summary]) -> ExitCode {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
-
     use super::*;
 
     #[test]
@@ -333,7 +331,6 @@ mod tests {
         let mut summary = Summary::new("target".to_string());
         summary.sent = 2;
         summary.received = 1;
-        summary.rtts.push(Duration::from_millis(1));
 
         assert_eq!(exit_code_for_summary(&summary), ExitCode::SUCCESS);
     }

@@ -202,9 +202,19 @@ mod tests {
     #[test]
     fn text_summary_renders_as_contiguous_block() {
         let mut summary = Summary::new("target".to_string());
-        summary.sent = 3;
-        summary.received = 2;
-        summary.rtts = vec![Duration::from_millis(10), Duration::from_millis(20)];
+        for millis in [10, 20] {
+            summary.record(
+                Local::now(),
+                &ProbeOutcome::Reply {
+                    rtt: Duration::from_millis(millis),
+                    peer: String::new(),
+                    bytes: None,
+                    ttl: None,
+                    detail: Vec::new(),
+                },
+            );
+        }
+        summary.record(Local::now(), &ProbeOutcome::Timeout { detail: Vec::new() });
 
         let output = Output::new(
             TimestampFormatter::new(TimestampKind::None, None),
@@ -252,9 +262,18 @@ mod tests {
     #[test]
     fn colored_summary_highlights_loss_and_rtt() {
         let mut summary = Summary::new("target".to_string());
-        summary.sent = 2;
-        summary.received = 2;
-        summary.rtts = vec![Duration::from_millis(5), Duration::from_millis(7)];
+        for millis in [5, 7] {
+            summary.record(
+                Local::now(),
+                &ProbeOutcome::Reply {
+                    rtt: Duration::from_millis(millis),
+                    peer: String::new(),
+                    bytes: None,
+                    ttl: None,
+                    detail: Vec::new(),
+                },
+            );
+        }
         let output = Output::new(
             TimestampFormatter::new(TimestampKind::None, None),
             false,

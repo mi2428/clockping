@@ -43,7 +43,9 @@ pub struct Summary {
     pub target: String,
     pub sent: u64,
     pub received: u64,
-    pub rtts: Vec<Duration>,
+    rtt_min_max: Option<(Duration, Duration)>,
+    rtt_total_secs: f64,
+    // Detailed loss history intentionally remains unbounded.
     pub loss_periods: Vec<LossPeriod>,
     open_loss: Option<OpenLossPeriod>,
 }
@@ -54,7 +56,8 @@ impl Summary {
             target,
             sent: 0,
             received: 0,
-            rtts: Vec::new(),
+            rtt_min_max: None,
+            rtt_total_secs: 0.0,
             loss_periods: Vec::new(),
             open_loss: None,
         }
@@ -66,7 +69,10 @@ impl Summary {
         match outcome {
             ProbeOutcome::Reply { rtt, .. } => {
                 self.received += 1;
-                self.rtts.push(*rtt);
+                let (min, max) = self.rtt_min_max.get_or_insert((*rtt, *rtt));
+                *min = (*min).min(*rtt);
+                *max = (*max).max(*rtt);
+                self.rtt_total_secs += rtt.as_secs_f64();
                 self.open_loss.take().map(|open| {
                     let duration_ms = ts
                         .signed_duration_since(open.start)
@@ -105,10 +111,8 @@ impl Summary {
     }
 
     pub fn rtt_min_avg_max(&self) -> Option<(Duration, Duration, Duration)> {
-        let min = *self.rtts.iter().min()?;
-        let max = *self.rtts.iter().max()?;
-        let total_secs = self.rtts.iter().map(Duration::as_secs_f64).sum::<f64>();
-        let avg = Duration::from_secs_f64(total_secs / self.rtts.len() as f64);
+        let (min, max) = self.rtt_min_max?;
+        let avg = Duration::from_secs_f64(self.rtt_total_secs / self.received as f64);
         Some((min, avg, max))
     }
 }
@@ -190,6 +194,55 @@ mod tests {
     use super::*;
 
     #[test]
+    fn summary_aggregates_many_rtts_without_sample_retention() {
+        let mut summary = Summary::new("target".to_string());
+        let ts = Local.with_ymd_and_hms(2026, 4, 25, 12, 0, 0).unwrap();
+        assert_eq!(summary.rtt_min_avg_max(), None);
+
+        const SAMPLES: u64 = 100_000;
+        for index in 0..SAMPLES {
+            let rtt = Duration::from_nanos((index * 37 + SAMPLES / 2) % SAMPLES + 1);
+            assert!(
+                summary
+                    .record(
+                        ts,
+                        &ProbeOutcome::Reply {
+                            rtt,
+                            peer: String::new(),
+                            bytes: None,
+                            ttl: None,
+                            detail: Vec::new(),
+                        }
+                    )
+                    .is_none()
+            );
+            if index == 0 {
+                assert_eq!(summary.rtt_min_avg_max(), Some((rtt, rtt, rtt)));
+            }
+        }
+        let total_secs = (0..SAMPLES)
+            .map(|index| {
+                Duration::from_nanos((index * 37 + SAMPLES / 2) % SAMPLES + 1).as_secs_f64()
+            })
+            .sum::<f64>();
+        assert_eq!(
+            summary.rtt_min_avg_max(),
+            Some((
+                Duration::from_nanos(1),
+                Duration::from_secs_f64(total_secs / SAMPLES as f64),
+                Duration::from_nanos(SAMPLES),
+            ))
+        );
+        assert_eq!((summary.sent, summary.received), (SAMPLES, SAMPLES));
+        // This Copy-only state cannot retain heap-allocated RTT samples.
+        let rtt_state: (Option<(Duration, Duration)>, f64) =
+            (summary.rtt_min_max, summary.rtt_total_secs);
+        let copy = rtt_state;
+        assert_eq!(rtt_state, copy);
+        assert_eq!(summary.loss_periods.capacity(), 0);
+    }
+
+    #[test]
     fn summary_tracks_loss_period_recovery() {
         let mut summary = Summary::new("target".to_string());
         let t0 = Local.with_ymd_and_hms(2026, 4, 25, 12, 0, 0).unwrap();
@@ -201,9 +254,10 @@ mod tests {
                 .record(t0, &ProbeOutcome::Timeout { detail: Vec::new() })
                 .is_none()
         );
+        assert_eq!(summary.rtt_min_avg_max(), None);
         assert!(
             summary
-                .record(t1, &ProbeOutcome::Timeout { detail: Vec::new() })
+                .record(t1, &ProbeOutcome::Error("failed".to_string()))
                 .is_none()
         );
         let recovery = summary
@@ -220,9 +274,24 @@ mod tests {
             .unwrap();
 
         assert_eq!(recovery.lost, 2);
+        assert_eq!(recovery.duration_ms, 2000);
         assert_eq!(summary.loss_periods.len(), 1);
         assert_eq!(summary.loss_periods[0].lost, 2);
+        assert_eq!(summary.loss_periods[0].start, t0);
+        assert_eq!(summary.loss_periods[0].end, Some(t2));
         assert_eq!(summary.sent, 3);
         assert_eq!(summary.received, 1);
+        let rtt = Duration::from_millis(10);
+        assert_eq!(summary.rtt_min_avg_max(), Some((rtt, rtt, rtt)));
+
+        summary.record(t2, &ProbeOutcome::Timeout { detail: Vec::new() });
+        summary.finalize();
+        summary.finalize();
+        assert_eq!((summary.sent, summary.received), (4, 1));
+        assert_eq!(summary.rtt_min_avg_max(), Some((rtt, rtt, rtt)));
+        assert_eq!(summary.loss_periods.len(), 2);
+        assert_eq!(summary.loss_periods[1].lost, 1);
+        assert_eq!(summary.loss_periods[1].start, t2);
+        assert_eq!(summary.loss_periods[1].end, None);
     }
 }

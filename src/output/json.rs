@@ -125,22 +125,45 @@ fn build_loss_period(output: &Output, period: &LossPeriod) -> JsonLossPeriod {
 mod tests {
     use std::time::Duration;
 
-    use crate::timefmt::{TimestampFormatter, TimestampKind};
+    use chrono::Local;
+
+    use crate::{
+        event::ProbeOutcome,
+        timefmt::{TimestampFormatter, TimestampKind},
+    };
 
     use super::*;
 
     #[test]
     fn json_summary_includes_stats() {
         let mut summary = Summary::new("target".to_string());
-        summary.sent = 3;
-        summary.received = 2;
-        summary.rtts = vec![Duration::from_millis(10), Duration::from_millis(20)];
-
         let output = Output::new(
             TimestampFormatter::new(TimestampKind::None, None),
             true,
             false,
         );
+        let empty = serde_json::to_value(build_summary(&output, &summary)).unwrap();
+        assert_eq!(
+            empty,
+            serde_json::json!({
+                "type": "summary", "target": "target", "sent": 0, "received": 0,
+                "lost": 0, "loss_pct": 0.0,
+            })
+        );
+        for millis in [10, 20] {
+            summary.record(
+                Local::now(),
+                &ProbeOutcome::Reply {
+                    rtt: Duration::from_millis(millis),
+                    peer: String::new(),
+                    bytes: None,
+                    ttl: None,
+                    detail: Vec::new(),
+                },
+            );
+        }
+        summary.record(Local::now(), &ProbeOutcome::Timeout { detail: Vec::new() });
+        summary.finalize();
         let value = serde_json::to_value(build_summary(&output, &summary)).unwrap();
 
         assert_eq!(value["type"], "summary");
@@ -151,5 +174,9 @@ mod tests {
         assert_eq!(value["rtt_min_ms"], 10.0);
         assert_eq!(value["rtt_avg_ms"], 15.0);
         assert_eq!(value["rtt_max_ms"], 20.0);
+        assert_eq!(value["loss_periods"][0]["lost"], 1);
+        assert!(value["loss_periods"][0].get("start").is_some());
+        assert!(value["loss_periods"][0].get("end").is_none());
+        assert!(value["loss_periods"][0].get("duration_ms").is_none());
     }
 }
