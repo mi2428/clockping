@@ -161,6 +161,13 @@ The supported `CLOCKPING_*` defaults are listed below.
 Native ICMP is the default and supports the common ping-style options shown below.
 Notable compatibility flags are `-n` for numeric target labels, `-D`/`--timestamp` to force clockping timestamps even when `--ts.preset none` is set, and `-O` to mark timeout events as outstanding replies.
 
+Native mode uses surge-ping 0.9.1. Only Echo Replies with code 0 count as received/up;
+router time-exceeded/unreachable packets are reported as errors with their sender,
+type/code, and sequence, and count as loss. A probed target with no Echo Replies exits
+unsuccessfully. See [migration verification](dependency-assessment.md#surge-ping-091-migration-26)
+for the runnable IPv4/IPv6 packet fixtures, native loopback checks, and remaining
+Linux/privileged integration gate.
+
 ```console
 $ clockping icmp --help
 

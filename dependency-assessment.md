@@ -154,75 +154,79 @@ HEAD to `https://example.com/` also returned 200 using the embedded public roots
 No external PUT/DELETE was sent. These results do not claim Linux/scratch or
 a new advisory scan of the changed lockfile.
 
-## Surge-ping 0.9 assessment (#26)
+## Surge-ping 0.9.1 migration (#26)
 
-**Decision: defer migration; retain 0.8.4.** The assessment and baseline coverage
-are complete, not approval of 0.9 on Linux/macOS. Integrate native maintenance
-from #10 first. A source-level packet-semantics risk, plus missing Linux runtime
-coverage, makes a version-only upgrade inappropriate.
+**Implemented: 0.8.4 -> 0.9.1, with native packet classification.** This replaces
+the earlier deferral. The crates.io API reports 0.9.1 as the latest non-yanked
+stable release on the evidence date; Rust 1.95.0 supports its MSRV 1.85 / edition
+2024. The migration is built and tested on macOS; Linux/privileged release
+integration remains a separate required gate, not an assumed pass.
 
-Sources: [0.9.0 release](https://github.com/kolapapa/surge-ping/releases/tag/0.9.0),
+Sources: [crates.io version record](https://crates.io/api/v1/crates/surge-ping/0.9.1),
 [0.9.1 changelog](https://github.com/kolapapa/surge-ping/blob/0.9.1/CHANGELOG.md),
-`cargo info surge-ping@0.9.1 --verbose`, and the published 0.8.4/0.9.1
+`cargo info surge-ping@0.9.1 --offline --verbose`, and the published 0.8.4/0.9.1
 `config.rs`, `client.rs`, `ping.rs`, and ICMP decoders.
 
-### API, platform, and behavior inventory
+### Migration and preserved contracts
 
-- 0.9.0 raises MSRV to 1.85 / edition 2024 and moves socket2 0.5 -> 0.6,
-  thiserror 1 -> 2, rand 0.9 -> 0.10, and pnet_packet 0.34 -> 0.35.
-  Our toolchain already supports its MSRV, and our direct socket2 is 0.6.
-  Clockping does not consume the breaking public `AsyncSocket::get_type()`
-  socket2 type. A future migration needs the manifest/lock update; no change to
-  the currently called API signatures was found. This is not a 0.9 build claim.
-- `ConfigBuilder::{kind, ttl, bind, interface, interface_index}`, `Client::new`,
-  `Client::pinger`, `Pinger::{scope_id, timeout, ping}`, packet getters, and
-  `SurgeError::Timeout` remain. Source binding still uses SocketAddr; macOS
-  binding uses the nonzero index and IPv4/IPv6 socket options; Linux interface
-  binding uses SO_BINDTODEVICE. IPv6 scope_id is still applied on send.
-- DGRAM-first/RAW-second socket selection remains. Linux permission diagnostics
-  change; approved runners must already permit ICMP and interface binding.
-  Do not change ping_group_range, grant capabilities, or elevate inside tests.
-- 0.9.1 fixes Client-clone lifetime, duplicate waiter replacement, cancellation
-  cleanup, and ICMP error decoding/routing. These have maintenance value, but
-  the application owns one Client per prober, does not clone it, serializes
-  ping calls per prober, and retains `_client` while its Pinger is alive.
-  Linux DGRAM sockets can use kernel-owned identifiers rather than the hint;
-  do not mistake that for a broken per-prober identifier allocator.
-- **Reject a version-only migration:** 0.9.1 `recv_task` routes intermediate
-  ICMP errors by `packet.real_destination()` (0.8.4 used sender address), and
-  `Pinger::ping` returns that packet as Ok. Clockping's current `probe` maps
-  every Ok V4/V6 packet to `ProbeOutcome::Reply`, without checking EchoReply.
-  Thus newly delivered time-exceeded/unreachable packets can become false
-  successful replies, affecting loss/up/exit status. This is source-level
-  evidence, not a reproduced live-router failure. A reviewed migration must
-  classify packet type at the shared native probe boundary and test it before
-  adoption; do not conceal the change with a fallback to the old dependency.
+- The manifest and lockfile now select 0.9.1. Its required pnet packages move
+  0.34 -> 0.35 and rand 0.9 -> 0.10.3; thiserror 1 is removed in favor of the
+  already installed thiserror 2. Socket2 remains 0.6.5 (both published versions
+  already depend on 0.6.1). No new direct/test dependency or TLS change is needed.
+- `ConfigBuilder::{kind, ttl, bind, interface, interface_index}`, `Client::{new,
+  pinger}`, `Pinger::{scope_id, timeout, ping}`, and packet getters remain usable
+  without a signature adaptation. Source-address binding, macOS nonzero interface
+  indices, Linux SO_BINDTODEVICE, IPv6 scope_id, DGRAM-first/RAW-second selection,
+  independent per-prober Clients, and retained `_client` lifetime are unchanged.
+  Linux DGRAM sockets still use kernel-owned identifiers, not the caller's hint.
+- **The behavioral adaptation is mandatory:** 0.9.1 `recv_task` routes router
+  errors using the destination quoted inside the packet, and `Pinger::ping`
+  returns them as Ok. Shared `ping_outcome` accepts only IPv4 Echo Reply
+  type 0/code 0 and IPv6 Echo Reply type 129/code 0 as `ProbeOutcome::Reply`.
+  Everything else is `Error`, with a category, sender, type, code, and icmp_seq;
+  time exceeded and destination unreachable are never replies. Unknown types
+  and invalid Echo Reply codes also fail closed. There is no legacy fallback.
+- Real replies retain peer/bytes/TTL/sequence/detail/RTT and the existing schema.
+  The upstream IPv6 decoder still supplies hop limit 0; Linux DGRAM IPv4 replies
+  still lack TTL. Router errors have no successful RTT/peer/bytes/TTL fields.
+  The existing Summary/metrics/exit boundary counts errors and timeouts as loss,
+  with up=0 and no received increment. A target with probes but no real echo
+  replies exits unsuccessfully. Timeout and `-O` outstanding detail are unchanged.
+- Std byte fixtures exercise v4 RAW/DGRAM formats and v6 through the public
+  decoders, including quoted IPv4 options, IPv6 extensions, truncation, malformed
+  headers, unknown types, and invalid echo codes. They assert classification,
+  JSON fields, sent/received/loss/recovery, metrics/up/RTT, and exit behavior.
+  Malformed wire packets are rejected by the upstream decoder before delivery;
+  its receive loop discards them, so an unanswered live probe times out rather
+  than generating a reply. Fixtures do not claim live-router routing coverage.
 
-### Focused coverage and approval checklist
-
-`tests/icmp_smoke.py` is a standalone native-only check requiring no extra
-Python dependency. It uses only lo0/lo and loopback addresses, changes no
-interface, and raises on permission failure, missing IPv6, or unmet assertions.
+### Runnable verification and remaining platform gate
 
 ```sh
+cargo test --locked protocol::icmp::
+cargo test --locked native_loopback_timeout_cancellation_and_client_lifetime -- --ignored --nocapture
 cargo build --locked
 python3 tests/icmp_smoke.py target/debug/clockping
-cargo test --locked protocol::icmp::
+make check
 ```
 
-| Contract | Evidence / required approval coverage |
-| --- | --- |
-| Successful interface selection | macOS lo0, IPv4 and IPv6: two replies each. Run the same mandatory check on Linux lo with preconfigured privileges. |
-| Invalid interface selection | Both families fail explicitly with unknown-interface error; existing unit test also passes. |
-| Source-address selection | 127.0.0.1 and ::1 binding each receive two replies; add opposite-family/nonlocal source rejection with native validation work. |
-| IPv4/IPv6 | Unbound loopback succeeds for both; IPv6 interface check exercises scope_id assignment, not link-local routing. Add controlled link-local scope and hostname family filtering. |
-| Independent probers | Existing identifier uniqueness unit test passes; two simultaneous same-target probers, sequence 0/1, each receive both replies for both families. Does not inspect on-wire kernel identifiers. |
-| ICMP error packet semantics | Add deterministic IPv4/IPv6 time-exceeded/unreachable and quoted-header fixtures; assert they are not EchoReply/up/success. Required before adopting the new routing. |
-| Socket and lifecycle behavior | Verify DGRAM and RAW permissions, timeout and cancellation on each supported platform; baseline smoke does not force RAW. |
-| Linux/Compose | Existing Compose exercises native IPv4, external ping, and target-down; add mandatory interface/IPv6/source coverage. Docker unavailable, so no Linux/Compose pass is claimed. |
+The native lifecycle test is explicitly ignored in the ordinary socket-free
+test gate and must be run separately. It fails on missing IPv4/IPv6/socket
+permissions; it never silently skips. To force deterministic loopback timeouts,
+the test inverts the public pinger identifier mode so replies cannot match its
+waiter. It verifies real timeout/outstanding detail, same-sequence reuse after
+timeout/cancellation, surviving Client clones, and in-flight Client destruction,
+without a remote blackhole or network configuration changes.
 
-The macOS smoke and eight focused ICMP tests passed with 0.8.4. Run these
-explicit checks on the selected 0.9 candidate, alongside `make check` and
-Compose native scenarios, before approval. Upstream's own platform-skipping
-tests are not a substitute for required project coverage. There is no OSV match
-for the current lock graph; version age alone is not a new security defect.
+| Contract | Verification on the selected 0.9.1 |
+| --- | --- |
+| Unit/standard gate | `protocol::icmp::`: 11 passed, native lifecycle explicitly ignored; the separate lifecycle run passed with no skips. `make check` and `RUST_TEST_THREADS=1 make check`: fmt/clippy/rustdoc, 108 unit + 35 integration passed. Native Pushgateway and Docker E2E were not run. |
+| Interface/source/independent probers | macOS lo0 and 127.0.0.1/::1: unbound, interface-bound, source-bound, and two simultaneous same-target probers each receive two replies. Invalid interface fails explicitly in both families. |
+| Flags/schema/cancellation | Native smoke passes numeric/quiet/-D/-O/size/TTL/JSON and SIGINT after an actual readiness event. Packet fixtures cover timeout counts and outstanding fields; lifecycle uses both families' real DGRAM sockets. |
+| Linux/RAW/Compose/scratch | Not run by this worker. Run the same mandatory smoke/lifecycle checks on an approved Linux runner and the native Compose/release matrix with preconfigured DGRAM/RAW/interface privileges. Do not elevate, change ping_group_range, or grant capabilities inside tests. |
+| Scope/live routing | IPv6 interface loopback exercises scope_id assignment, not link-local routing. Live router errors and controlled link-local routing remain unexercised; no pass is claimed. |
+
+`tests/icmp_smoke.py` uses Python's standard library and only lo0/lo and loopback
+addresses. Missing IPv6, permission failures, or unmet assertions fail visibly.
+Run it explicitly alongside `make check`; ordinary unit tests are not proof of
+privileged platform support.
