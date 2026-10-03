@@ -5,7 +5,10 @@ use std::{
 };
 
 use serde::Serialize;
-use tokio::sync::Mutex;
+use tokio::{
+    sync::{Mutex, mpsc},
+    task::JoinHandle,
+};
 
 use crate::{
     event::{ProbeEvent, ProbeOutcome},
@@ -15,6 +18,9 @@ use crate::{
 };
 
 pub type SharedMetricsReporter = Arc<Mutex<MetricsReporter>>;
+
+const PUSH_QUEUE_CAPACITY: usize = 16;
+const PUSH_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ProbeMetrics {
@@ -114,7 +120,10 @@ impl MetricsReporter {
         }
     }
 
-    pub fn shared(self) -> SharedMetricsReporter {
+    pub fn shared(mut self) -> SharedMetricsReporter {
+        if let Some(pushgateway) = &mut self.pushgateway {
+            pushgateway.start();
+        }
         Arc::new(Mutex::new(self))
     }
 
@@ -122,14 +131,13 @@ impl MetricsReporter {
         self.pushgateway.is_none() && self.file.is_none()
     }
 
-    pub async fn record(&mut self, metrics: ProbeMetrics) -> anyhow::Result<()> {
+    pub fn record(&mut self, metrics: ProbeMetrics) -> anyhow::Result<Option<PendingPush>> {
         let key = MetricsKey::from_probe(&metrics);
         self.latest_intervals.insert(key, metrics.clone());
-        let interval_snapshot = self.latest_intervals.values().cloned().collect::<Vec<_>>();
 
         if let Some(file) = &self.file {
             if file.writes_prometheus_snapshot() {
-                file.write_intervals(&interval_snapshot)?;
+                file.write_intervals(&self.latest_intervals.values().cloned().collect::<Vec<_>>())?;
             } else {
                 file.write_interval(&metrics)?;
             }
@@ -141,29 +149,44 @@ impl MetricsReporter {
             .and_then(|pushgateway| pushgateway.interval)
             .is_some()
         {
-            self.record_window(metrics).await;
+            Ok(self.record_window(metrics))
         } else if let Some(pushgateway) = &self.pushgateway {
-            pushgateway.push_intervals(&interval_snapshot).await;
+            Ok(Some(pushgateway.pending(false)))
+        } else {
+            Ok(None)
         }
-
-        Ok(())
     }
 
     pub async fn finish(&mut self) {
+        let deadline = tokio::time::Instant::now() + PUSH_SHUTDOWN_TIMEOUT;
         if self
             .pushgateway
             .as_ref()
             .and_then(|pushgateway| pushgateway.interval)
             .is_some()
         {
-            self.flush_all_windows().await;
+            let keys = self.windows.keys().cloned().collect::<Vec<_>>();
+            for key in keys {
+                if let Some(pending) = self.flush_window(&key) {
+                    match tokio::time::timeout_at(deadline, pending.sender.reserve()).await {
+                        Ok(Ok(permit)) => permit.send(self.snapshot(true)),
+                        Ok(Err(error)) => {
+                            eprintln!("failed to queue final window metrics: {error:#}")
+                        }
+                        Err(_) => eprintln!(
+                            "final window metrics were not queued before shutdown timeout"
+                        ),
+                    }
+                }
+            }
         }
-        if let Some(pushgateway) = &self.pushgateway {
+        if let Some(pushgateway) = &mut self.pushgateway {
+            pushgateway.finish_transport(deadline).await;
             pushgateway.delete_on_finish().await;
         }
     }
 
-    async fn record_window(&mut self, metrics: ProbeMetrics) {
+    fn record_window(&mut self, metrics: ProbeMetrics) -> Option<PendingPush> {
         let now = Instant::now();
         let key = MetricsKey::from_probe(&metrics);
         let mut flush_key = None;
@@ -174,9 +197,7 @@ impl MetricsReporter {
         {
             flush_key = Some(key.clone());
         }
-        if let Some(key) = flush_key {
-            self.flush_window(&key).await;
-        }
+        let pending = flush_key.and_then(|key| self.flush_window(&key));
 
         self.windows
             .entry(key)
@@ -186,26 +207,23 @@ impl MetricsReporter {
             })
             .samples
             .push(metrics);
+        pending
     }
 
-    async fn flush_window(&mut self, key: &MetricsKey) {
-        let Some(window) = self.windows.remove(key) else {
-            return;
-        };
-        let Some(metrics) = aggregate_window(&window.samples) else {
-            return;
-        };
+    fn flush_window(&mut self, key: &MetricsKey) -> Option<PendingPush> {
+        let window = self.windows.remove(key)?;
+        let metrics = aggregate_window(&window.samples)?;
         self.latest_windows.insert(key.clone(), metrics);
-        if let Some(pushgateway) = &self.pushgateway {
-            let snapshot = self.latest_windows.values().cloned().collect::<Vec<_>>();
-            pushgateway.push_windows(&snapshot).await;
-        }
+        self.pushgateway
+            .as_ref()
+            .map(|pushgateway| pushgateway.pending(true))
     }
 
-    async fn flush_all_windows(&mut self) {
-        let keys = self.windows.keys().cloned().collect::<Vec<_>>();
-        for key in keys {
-            self.flush_window(&key).await;
+    fn snapshot(&self, window: bool) -> PushBatch {
+        if window {
+            PushBatch::Windows(self.latest_windows.values().cloned().collect())
+        } else {
+            PushBatch::Intervals(self.latest_intervals.values().cloned().collect())
         }
     }
 }
@@ -235,22 +253,90 @@ struct WindowState {
 pub struct PushGatewaySink {
     sink: PushGateway,
     interval: Option<Duration>,
+    sender: Option<mpsc::Sender<PushBatch>>,
+    task: Option<JoinHandle<()>>,
+}
+
+#[derive(Debug)]
+enum PushBatch {
+    Intervals(Vec<ProbeMetrics>),
+    Windows(Vec<WindowMetrics>),
+}
+
+pub struct PendingPush {
+    sender: mpsc::Sender<PushBatch>,
+    window: bool,
+}
+
+impl PendingPush {
+    pub async fn send(self, reporter: &SharedMetricsReporter) -> anyhow::Result<()> {
+        let permit = self
+            .sender
+            .reserve()
+            .await
+            .map_err(|_| anyhow::anyhow!("metrics transport task stopped"))?;
+        // Build and enqueue under the same lock, so concurrent targets cannot send
+        // a stale, single-target snapshot after a newer multi-target snapshot.
+        let reporter = reporter.lock().await;
+        permit.send(reporter.snapshot(self.window));
+        Ok(())
+    }
 }
 
 impl PushGatewaySink {
     pub fn new(sink: PushGateway, interval: Option<Duration>) -> Self {
-        Self { sink, interval }
-    }
-
-    async fn push_intervals(&self, metrics: &[ProbeMetrics]) {
-        if let Err(error) = self.sink.push_many(metrics).await {
-            eprintln!("failed to push metrics: {error:#}");
+        Self {
+            sink,
+            interval,
+            sender: None,
+            task: None,
         }
     }
 
-    async fn push_windows(&self, metrics: &[WindowMetrics]) {
-        if let Err(error) = self.sink.push_windows(metrics).await {
-            eprintln!("failed to push window metrics: {error:#}");
+    fn start(&mut self) {
+        let (sender, mut receiver) = mpsc::channel(PUSH_QUEUE_CAPACITY);
+        let sink = self.sink.clone();
+        self.sender = Some(sender);
+        self.task = Some(tokio::spawn(async move {
+            while let Some(batch) = receiver.recv().await {
+                let (result, kind) = match batch {
+                    PushBatch::Intervals(metrics) => (sink.push_many(&metrics).await, "metrics"),
+                    PushBatch::Windows(metrics) => {
+                        (sink.push_windows(&metrics).await, "window metrics")
+                    }
+                };
+                if let Err(error) = result {
+                    eprintln!("failed to push {kind}: {error:#}");
+                }
+            }
+        }));
+    }
+
+    fn pending(&self, window: bool) -> PendingPush {
+        PendingPush {
+            sender: self
+                .sender
+                .as_ref()
+                .expect("shared reporter starts transport")
+                .clone(),
+            window,
+        }
+    }
+
+    async fn finish_transport(&mut self, deadline: tokio::time::Instant) {
+        self.sender.take();
+        if let Some(mut task) = self.task.take() {
+            match tokio::time::timeout_at(deadline, &mut task).await {
+                Ok(Ok(())) => {}
+                Ok(Err(error)) => eprintln!("metrics transport task failed: {error}"),
+                Err(_) => {
+                    eprintln!(
+                        "metrics transport shutdown timed out; unfinished pushes were canceled"
+                    );
+                    task.abort();
+                    let _ = task.await;
+                }
+            }
         }
     }
 
@@ -258,8 +344,18 @@ impl PushGatewaySink {
         if !self.sink.delete_on_finish() {
             return;
         }
-        if let Err(error) = self.sink.delete().await {
-            eprintln!("failed to delete Pushgateway metrics: {error:#}");
+        match tokio::time::timeout(PUSH_SHUTDOWN_TIMEOUT, self.sink.delete()).await {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => eprintln!("failed to delete Pushgateway metrics: {error:#}"),
+            Err(_) => eprintln!("Pushgateway delete timed out during shutdown"),
+        }
+    }
+}
+
+impl Drop for PushGatewaySink {
+    fn drop(&mut self) {
+        if let Some(task) = &self.task {
+            task.abort();
         }
     }
 }
@@ -308,6 +404,81 @@ fn current_unix_timestamp_seconds() -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn queued_snapshots_cannot_regress_target_identity_and_queue_is_bounded() {
+        use crate::pushgateway::PushGatewayConfig;
+
+        let gateway = PushGateway::new(PushGatewayConfig {
+            endpoint: reqwest::Url::parse("http://127.0.0.1:1").unwrap(),
+            job: "test".to_owned(),
+            labels: Vec::new(),
+            timeout: Duration::from_secs(1),
+            retries: 0,
+            user_agent: "clockping/test".to_owned(),
+            metric_prefix: "clockping".to_owned(),
+            delete_on_finish: false,
+        })
+        .unwrap();
+        let (sender, mut receiver) = mpsc::channel(PUSH_QUEUE_CAPACITY);
+        let mut sink = PushGatewaySink::new(gateway, None);
+        sink.sender = Some(sender.clone());
+        let reporter = Arc::new(Mutex::new(MetricsReporter::new(Some(sink), None)));
+        let sample = |target: &str| ProbeMetrics {
+            timestamp_unix_seconds: 1.0,
+            protocol: "tcp".to_owned(),
+            target: target.to_owned(),
+            seq: 0,
+            status: "reply",
+            sent: 1,
+            received: 1,
+            lost: 0,
+            loss_pct: 0.0,
+            up: 1.0,
+            rtt_seconds: Some(0.001),
+            bytes: None,
+            ttl: None,
+        };
+        let first = reporter
+            .lock()
+            .await
+            .record(sample("one:443"))
+            .unwrap()
+            .unwrap();
+        let second = reporter
+            .lock()
+            .await
+            .record(sample("two:443"))
+            .unwrap()
+            .unwrap();
+        second.send(&reporter).await.unwrap();
+        first.send(&reporter).await.unwrap();
+        for _ in 0..2 {
+            let PushBatch::Intervals(snapshot) = receiver.recv().await.unwrap() else {
+                panic!("wrong snapshot kind")
+            };
+            assert_eq!(snapshot.len(), 2);
+            assert_eq!(snapshot[0].target, "one:443");
+            assert_eq!(snapshot[1].target, "two:443");
+        }
+        for _ in 0..PUSH_QUEUE_CAPACITY {
+            sender.try_send(PushBatch::Intervals(Vec::new())).unwrap();
+        }
+        assert_eq!(sender.capacity(), 0);
+        let pending = reporter
+            .lock()
+            .await
+            .record(sample("one:443"))
+            .unwrap()
+            .unwrap();
+        assert!(
+            tokio::time::timeout(Duration::from_millis(20), pending.send(&reporter))
+                .await
+                .is_err()
+        );
+        // A backpressured producer does not own the aggregation lock.
+        assert!(reporter.try_lock().is_ok());
+    }
 
     #[test]
     fn window_metrics_aggregate_probe_results() {

@@ -125,6 +125,69 @@ pub fn spawn_pushgateway_capture_n(count: usize) -> (String, mpsc::Receiver<Capt
 }
 
 fn capture_pushgateway_request(mut stream: TcpStream) -> Option<CapturedHttpRequest> {
+    let request = read_pushgateway_request(&mut stream)?;
+    let _ = io::Write::write_all(
+        &mut stream,
+        b"HTTP/1.1 202 Accepted\r\nContent-Length: 0\r\n\r\n",
+    );
+    Some(request)
+}
+
+pub fn spawn_slow_pushgateway_capture(
+    delay: Duration,
+) -> (
+    String,
+    mpsc::Receiver<CapturedHttpRequest>,
+    thread::JoinHandle<()>,
+) {
+    spawn_pushgateway_reply_capture(&[202], delay)
+}
+
+pub fn spawn_pushgateway_reply_capture(
+    statuses: &[u16],
+    delay: Duration,
+) -> (
+    String,
+    mpsc::Receiver<CapturedHttpRequest>,
+    thread::JoinHandle<()>,
+) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let (tx, rx) = mpsc::channel();
+    let statuses = statuses.to_vec();
+    let task = thread::spawn(move || {
+        for status in statuses {
+            let started = Instant::now();
+            loop {
+                assert!(
+                    started.elapsed() < Duration::from_secs(5),
+                    "capture did not receive a request"
+                );
+                match listener.accept() {
+                    Ok((mut stream, _)) => {
+                        if let Some(request) = read_pushgateway_request(&mut stream) {
+                            let _ = tx.send(request);
+                            thread::sleep(delay);
+                            let response = format!(
+                                "HTTP/1.1 {status} Test\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                            );
+                            let _ = io::Write::write_all(&mut stream, response.as_bytes());
+                        }
+                        break;
+                    }
+                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                        thread::sleep(Duration::from_millis(10))
+                    }
+                    Err(error) => panic!("slow capture accept failed: {error}"),
+                }
+            }
+        }
+    });
+    (format!("http://{addr}"), rx, task)
+}
+
+fn read_pushgateway_request(stream: &mut TcpStream) -> Option<CapturedHttpRequest> {
     stream
         .set_read_timeout(Some(Duration::from_secs(3)))
         .expect("failed to set Pushgateway capture read timeout");
@@ -132,7 +195,7 @@ fn capture_pushgateway_request(mut stream: TcpStream) -> Option<CapturedHttpRequ
     let mut buffer = Vec::new();
     let mut chunk = [0_u8; 1024];
     let header_end = loop {
-        match io::Read::read(&mut stream, &mut chunk) {
+        match io::Read::read(stream, &mut chunk) {
             Ok(0) => return None,
             Ok(read) => {
                 buffer.extend_from_slice(&chunk[..read]);
@@ -147,7 +210,7 @@ fn capture_pushgateway_request(mut stream: TcpStream) -> Option<CapturedHttpRequ
     let headers = String::from_utf8_lossy(&buffer[..header_end]).to_string();
     let content_length = headers.lines().find_map(parse_content_length).unwrap_or(0);
     while buffer.len() < header_end + content_length {
-        match io::Read::read(&mut stream, &mut chunk) {
+        match io::Read::read(stream, &mut chunk) {
             Ok(0) => break,
             Ok(read) => buffer.extend_from_slice(&chunk[..read]),
             Err(_) => break,
@@ -157,10 +220,6 @@ fn capture_pushgateway_request(mut stream: TcpStream) -> Option<CapturedHttpRequ
     let body_end = (header_end + content_length).min(buffer.len());
     let body = String::from_utf8_lossy(&buffer[header_end..body_end]).to_string();
     let request_line = headers.lines().next().unwrap_or_default().to_string();
-    let _ = io::Write::write_all(
-        &mut stream,
-        b"HTTP/1.1 202 Accepted\r\nContent-Length: 0\r\n\r\n",
-    );
     Some(CapturedHttpRequest { request_line, body })
 }
 

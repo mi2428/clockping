@@ -170,17 +170,39 @@ pub async fn run_probe_loop<P: Prober + Send>(
             outcome,
             recovery,
         };
-        if let Some(metrics) = &metrics {
+        let pending_push = if let Some(metrics) = &metrics {
             metrics
                 .lock()
                 .await
-                .record(ProbeMetrics::from_event(&event, &summary))
-                .await?;
-        }
+                .record(ProbeMetrics::from_event(&event, &summary))?
+        } else {
+            None
+        };
         if !quiet {
             output.print_event(&event)?;
         }
         seq += 1;
+        // FIFO saturation applies backpressure outside the shared aggregation lock.
+        // Probe output and file events are already recorded; cancellation is visible.
+        if let Some(pending) = pending_push {
+            tokio::select! {
+                result = pending.send(metrics.as_ref().expect("pending push has reporter")) => result?,
+                _ = tokio::signal::ctrl_c() => {
+                    eprintln!("metrics enqueue interrupted; pending snapshot was not queued");
+                    break;
+                }
+                _ = async {
+                    if let Some(deadline) = config.deadline {
+                        time::sleep_until(time::Instant::from_std(started + deadline)).await;
+                    } else {
+                        std::future::pending::<()>().await;
+                    }
+                } => {
+                    eprintln!("metrics enqueue reached probe deadline; pending snapshot was not queued");
+                    break;
+                }
+            }
+        }
     }
 
     summary.finalize();

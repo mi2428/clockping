@@ -306,3 +306,134 @@ fn pushes_window_metrics_to_pushgateway() {
     assert_contains(&request.body, "clockping_window_samples");
     assert_contains(&request.body, "clockping_window_replies");
 }
+
+#[test]
+fn slow_pushgateway_does_not_delay_multi_target_events_or_file_samples() {
+    use std::{
+        process::{Command, Stdio},
+        time::Instant,
+    };
+    let first = spawn_tcp_acceptor(4);
+    let second = spawn_tcp_acceptor(4);
+    let path = temp_metrics_path("jsonl");
+    let (url, requests, server) = spawn_slow_pushgateway_capture(Duration::from_secs(2));
+    let mut child = Command::new(clockping_bin())
+        .args([
+            "--push.url",
+            &url,
+            "--metrics.file",
+            path.to_str().unwrap(),
+            "tcp",
+            "-c",
+            "4",
+            "-i",
+            "0",
+            &first,
+            &second,
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    requests.recv_timeout(Duration::from_secs(3)).unwrap();
+    let reporting = Instant::now();
+    assert!(wait_for_child(&mut child, Duration::from_millis(1600)).success());
+    assert!(reporting.elapsed() < Duration::from_millis(1600));
+    let stdout = child_stdout(&mut child);
+    for target in [&first, &second] {
+        assert_contains(&stdout, &format!("tcp {target}"));
+    }
+    let lines = fs::read_to_string(&path).unwrap();
+    assert_eq!(lines.lines().count(), 8);
+    assert_contains(&child_stderr(&mut child), "unfinished pushes were canceled");
+    fs::remove_file(path).unwrap();
+    server.join().unwrap();
+}
+
+#[test]
+fn asynchronous_transport_retries_and_reports_nonretryable_failures() {
+    for statuses in [&[500, 202][..], &[400][..]] {
+        let target = spawn_tcp_acceptor(1);
+        let (url, requests, server) = spawn_pushgateway_reply_capture(statuses, Duration::ZERO);
+        let output = run_clockping(&[
+            "--push.url",
+            &url,
+            "--push.retries",
+            "2",
+            "tcp",
+            "-c",
+            "1",
+            &target,
+        ]);
+        for _ in statuses {
+            let request = requests.recv_timeout(Duration::from_secs(3)).unwrap();
+            assert_contains(&request.request_line, "PUT /metrics/job/clockping ");
+        }
+        if statuses[0] == 400 {
+            assert_contains(&output, "failed to push metrics: Pushgateway returned 400");
+        }
+        server.join().unwrap();
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn reporting_backpressure_remains_interruptible_and_deadline_bounded() {
+    use std::{
+        process::{Command, Stdio},
+        time::Instant,
+    };
+    for interrupt in [true, false] {
+        let target = spawn_tcp_acceptor(100);
+        let path = temp_metrics_path("jsonl");
+        let (url, requests, server) = spawn_slow_pushgateway_capture(Duration::from_secs(2));
+        let mut command = Command::new(clockping_bin());
+        command.args([
+            "--push.url",
+            &url,
+            "--metrics.file",
+            path.to_str().unwrap(),
+            "tcp",
+            "-i",
+            "0",
+            &target,
+        ]);
+        if !interrupt {
+            command.args(["-w", "0.2"]);
+        }
+        set_own_process_group(&mut command);
+        let mut child = command
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        requests.recv_timeout(Duration::from_secs(3)).unwrap();
+        let started = Instant::now();
+        while fs::read_to_string(&path).unwrap().lines().count() < 18 {
+            assert!(
+                started.elapsed() < Duration::from_secs(1),
+                "FIFO never filled"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let canceled = Instant::now();
+        if interrupt {
+            interrupt_process_group(child.id());
+        }
+        assert!(wait_for_child(&mut child, Duration::from_millis(1600)).success());
+        assert!(canceled.elapsed() < Duration::from_millis(1600));
+        let stderr = child_stderr(&mut child);
+        assert_contains(
+            &stderr,
+            if interrupt {
+                "metrics enqueue interrupted"
+            } else {
+                "metrics enqueue reached probe deadline"
+            },
+        );
+        assert_contains(&stderr, "unfinished pushes were canceled");
+        assert_contains(&child_stdout(&mut child), "probes transmitted");
+        fs::remove_file(path).unwrap();
+        server.join().unwrap();
+    }
+}
