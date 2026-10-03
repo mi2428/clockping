@@ -96,6 +96,8 @@ impl MetricsFileSink {
     }
 
     fn create_empty_file(&self) -> anyhow::Result<()> {
+        // New files use the platform defaults (including Unix umask); snapshots retain
+        // these permissions, but atomic replacement does not preserve ownership or ACLs.
         File::create(&self.path)
             .map(|_| ())
             .map_err(|error| file_error("failed to create metrics file", &self.path, error))
@@ -149,12 +151,25 @@ fn atomic_write(path: &Path, contents: &[u8]) -> anyhow::Result<()> {
 }
 
 fn write_temp_then_rename(temp_path: &Path, path: &Path, contents: &[u8]) -> std::io::Result<()> {
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(temp_path)?;
+    let permissions = match fs::metadata(path) {
+        Ok(metadata) => Some(metadata.permissions()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(error),
+    };
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    // A temporary file must not expose private contents before its final mode is applied.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(temp_path)?;
     file.write_all(contents)?;
     file.flush()?;
+    if let Some(permissions) = permissions {
+        file.set_permissions(permissions)?;
+    }
     drop(file);
     fs::rename(temp_path, path)
 }
@@ -246,6 +261,71 @@ mod tests {
         assert!(output.contains("target=\"one:443\""));
         assert!(output.contains("target=\"two:443\""));
         let _ = fs::remove_file(path);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn prometheus_snapshot_preserves_private_file_mode() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let path = temp_path("prom");
+        fs::write(&path, "old snapshot").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        let sink = MetricsFileSink::with_prefix_and_labels(
+            &path,
+            MetricsFileFormat::Prometheus,
+            "clockping",
+            std::iter::empty::<(String, String)>(),
+        )
+        .unwrap();
+        for seq in 0..2 {
+            sink.write_interval(&sample_metrics(seq)).unwrap();
+            assert_eq!(
+                fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
+        fs::remove_file(path).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn new_prometheus_snapshot_retains_creation_mode() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let path = temp_path("prom");
+        let sink = MetricsFileSink::with_prefix_and_labels(
+            &path,
+            MetricsFileFormat::Prometheus,
+            "clockping",
+            std::iter::empty::<(String, String)>(),
+        )
+        .unwrap();
+        let mode = fs::metadata(&path).unwrap().permissions().mode();
+        sink.write_interval(&sample_metrics(0)).unwrap();
+        assert_eq!(fs::metadata(&path).unwrap().permissions().mode(), mode);
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn failed_snapshot_rename_cleans_temp_and_keeps_destination() {
+        let path = temp_path("prom");
+        fs::create_dir(&path).unwrap();
+        let prior = path.join("old snapshot");
+        fs::write(&prior, "previous metrics").unwrap();
+
+        assert!(atomic_write(&path, b"new metrics").is_err());
+        assert_eq!(fs::read_to_string(&prior).unwrap(), "previous metrics");
+        let temp_prefix = format!(".{}.tmp-", path.file_name().unwrap().to_string_lossy());
+        assert!(!fs::read_dir(path.parent().unwrap()).unwrap().any(|entry| {
+            entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with(&temp_prefix)
+        }));
+        fs::remove_file(prior).unwrap();
+        fs::remove_dir(path).unwrap();
     }
 
     #[test]
