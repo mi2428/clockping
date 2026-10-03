@@ -285,6 +285,110 @@ pub fn wait_for_child(child: &mut Child, timeout: Duration) -> ExitStatus {
 }
 
 #[cfg(unix)]
+pub struct GuardedChild {
+    pub child: Child,
+    pub external_groups: Vec<u32>,
+}
+
+#[cfg(unix)]
+impl GuardedChild {
+    pub fn spawn(mut command: Command) -> Self {
+        set_own_process_group(&mut command);
+        Self {
+            child: command.spawn().expect("failed to spawn guarded child"),
+            external_groups: Vec::new(),
+        }
+    }
+}
+
+#[cfg(unix)]
+impl Drop for GuardedChild {
+    fn drop(&mut self) {
+        // Kill only fixture-owned groups, including pingers isolated by clockping.
+        for id in &self.external_groups {
+            // SAFETY: these group IDs came from our own fixture's readiness line.
+            unsafe {
+                libc::kill(-(*id as libc::pid_t), libc::SIGKILL);
+            }
+        }
+        if self.child.try_wait().ok().flatten().is_none() {
+            // Allow the wrapper to reap a child, also when startup assertions fail.
+            unsafe {
+                libc::kill(-(self.child.id() as libc::pid_t), libc::SIGINT);
+            }
+            let started = Instant::now();
+            while started.elapsed() < Duration::from_secs(3) {
+                if self.child.try_wait().ok().flatten().is_some() {
+                    break;
+                }
+                thread::sleep(Duration::from_millis(20));
+            }
+            if self.child.try_wait().ok().flatten().is_none() {
+                // SAFETY: this still-running child's process group was created by spawn().
+                unsafe {
+                    libc::kill(-(self.child.id() as libc::pid_t), libc::SIGKILL);
+                }
+            }
+        }
+        let _ = self.child.wait();
+    }
+}
+
+#[cfg(unix)]
+pub fn child_stdout_lines(child: &mut Child) -> mpsc::Receiver<io::Result<String>> {
+    use io::BufRead;
+    let stdout = child.stdout.take().expect("missing stdout pipe");
+    let (tx, rx) = mpsc::channel();
+    thread::spawn(move || {
+        for line in io::BufReader::new(stdout).lines() {
+            if tx.send(line).is_err() {
+                break;
+            }
+        }
+    });
+    rx
+}
+
+#[cfg(unix)]
+pub fn next_stdout_line(rx: &mpsc::Receiver<io::Result<String>>) -> String {
+    rx.recv_timeout(Duration::from_secs(5))
+        .expect("child did not produce its readiness line")
+        .expect("failed to read child stdout")
+}
+
+#[cfg(unix)]
+pub fn remaining_stdout(rx: &mpsc::Receiver<io::Result<String>>) -> String {
+    let mut output = String::new();
+    loop {
+        match rx.recv_timeout(Duration::from_secs(3)) {
+            Ok(line) => {
+                output.push_str(&line.expect("failed to read child stdout"));
+                output.push('\n');
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => return output,
+            Err(mpsc::RecvTimeoutError::Timeout) => panic!("child stdout did not close"),
+        }
+    }
+}
+
+#[cfg(unix)]
+pub fn assert_process_gone(pid: u32) {
+    let started = Instant::now();
+    loop {
+        // SAFETY: signal 0 tests existence of a fixture-owned PID without signaling it.
+        let result = unsafe { libc::kill(pid as libc::pid_t, 0) };
+        if result == -1 && io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH) {
+            return;
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(1),
+            "fixture process {pid} survived shutdown"
+        );
+        thread::sleep(Duration::from_millis(20));
+    }
+}
+
+#[cfg(unix)]
 pub fn set_own_process_group(command: &mut Command) {
     use std::os::unix::process::CommandExt;
 
