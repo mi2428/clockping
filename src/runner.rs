@@ -1,4 +1,4 @@
-use std::time::{Duration, Instant};
+use std::{future::pending, time::Duration};
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -132,7 +132,16 @@ pub async fn run_probe_loop<P: Prober + Send>(
     let mut interval = time::interval(interval_duration);
     interval.set_missed_tick_behavior(time::MissedTickBehavior::Delay);
 
-    let started = Instant::now();
+    let deadline_at = config
+        .deadline
+        .map(|duration| time::Instant::now() + duration);
+    let deadline = async {
+        match deadline_at {
+            Some(deadline) => time::sleep_until(deadline).await,
+            None => pending::<()>().await,
+        }
+    };
+    tokio::pin!(deadline);
     let mut seq = 0_u64;
     let mut summary = Summary::new(prober.target().to_string());
 
@@ -140,23 +149,25 @@ pub async fn run_probe_loop<P: Prober + Send>(
         if config.count.is_some_and(|count| seq >= count) {
             break;
         }
-        if config
-            .deadline
-            .is_some_and(|deadline| started.elapsed() >= deadline)
-        {
-            break;
-        }
-
         tokio::select! {
-            _ = tokio::signal::ctrl_c() => {
+            biased;
+            _ = &mut deadline => break,
+            signal = tokio::signal::ctrl_c() => {
+                signal?;
                 break;
             }
             _ = interval.tick() => {}
         }
+        if deadline_at.is_some_and(|deadline| time::Instant::now() >= deadline) {
+            break;
+        }
 
         let ts = Local::now();
         let outcome = tokio::select! {
-            _ = tokio::signal::ctrl_c() => {
+            biased;
+            _ = &mut deadline => break,
+            signal = tokio::signal::ctrl_c() => {
+                signal?;
                 break;
             }
             outcome = prober.probe(seq) => outcome,
@@ -170,6 +181,7 @@ pub async fn run_probe_loop<P: Prober + Send>(
             outcome,
             recovery,
         };
+        // Commit completed events before stdout errors or transport cancellation.
         let pending_push = if let Some(metrics) = &metrics {
             metrics
                 .lock()
@@ -186,21 +198,17 @@ pub async fn run_probe_loop<P: Prober + Send>(
         // Probe output and file events are already recorded; cancellation is visible.
         if let Some(pending) = pending_push {
             tokio::select! {
-                result = pending.send(metrics.as_ref().expect("pending push has reporter")) => result?,
-                _ = tokio::signal::ctrl_c() => {
-                    eprintln!("metrics enqueue interrupted; pending snapshot was not queued");
-                    break;
-                }
-                _ = async {
-                    if let Some(deadline) = config.deadline {
-                        time::sleep_until(time::Instant::from_std(started + deadline)).await;
-                    } else {
-                        std::future::pending::<()>().await;
-                    }
-                } => {
+                biased;
+                _ = &mut deadline => {
                     eprintln!("metrics enqueue reached probe deadline; pending snapshot was not queued");
                     break;
                 }
+                signal = tokio::signal::ctrl_c() => {
+                    signal?;
+                    eprintln!("metrics enqueue interrupted; pending snapshot was not queued");
+                    break;
+                }
+                result = pending.send(metrics.as_ref().expect("pending push has reporter")) => result?,
             }
         }
     }
@@ -212,8 +220,162 @@ pub async fn run_probe_loop<P: Prober + Send>(
 #[cfg(test)]
 mod tests {
     use chrono::TimeZone;
+    use tokio::net::UdpSocket;
+
+    use crate::{
+        metrics::MetricsReporter,
+        metrics_file::{MetricsFileFormat, MetricsFileSink},
+        protocol::gtp::{GtpProber, GtpVariant},
+        timefmt::{TimestampFormatter, TimestampKind},
+    };
 
     use super::*;
+
+    #[tokio::test]
+    async fn deadline_bounds_ticks_and_active_probes() {
+        for (respond, count, deadline, expected) in [
+            (false, Some(1), Some(Duration::from_millis(50)), 0),
+            (true, None, Some(Duration::from_millis(50)), 1),
+            (true, Some(1), None, 1),
+            (true, Some(2), None, 2),
+            (true, Some(0), None, 0),
+            (true, Some(1), Some(Duration::ZERO), 0),
+        ] {
+            let server = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+            let prober = GtpProber::new(
+                GtpVariant::V1u,
+                "127.0.0.1".to_owned(),
+                Some(server.local_addr().unwrap().port()),
+                Duration::from_secs(1),
+            )
+            .await
+            .unwrap();
+            let started = time::Instant::now();
+            let run = async {
+                let summary = time::timeout(
+                    Duration::from_millis(400),
+                    run_probe_loop(
+                        prober,
+                        RunnerConfig {
+                            interval: if deadline.is_some() {
+                                Duration::from_secs(1)
+                            } else {
+                                Duration::from_millis(10)
+                            },
+                            count,
+                            deadline,
+                        },
+                        Output::new(
+                            TimestampFormatter::new(TimestampKind::None, None),
+                            false,
+                            false,
+                        ),
+                        true,
+                        None,
+                    ),
+                )
+                .await
+                .expect("runner overran deadline/count")
+                .unwrap();
+                assert!(started.elapsed() < Duration::from_millis(400));
+                if let Some(deadline) = deadline {
+                    assert!(started.elapsed() >= deadline);
+                }
+                summary
+            };
+            let fixture = async {
+                let mut requests = 0;
+                let mut buf = [0; 64];
+                while let Ok(Ok((len, peer))) =
+                    time::timeout(Duration::from_millis(200), server.recv_from(&mut buf)).await
+                {
+                    assert_eq!(u16::from_be_bytes([buf[8], buf[9]]) as u64, requests);
+                    requests += 1;
+                    if respond {
+                        buf[1] = 2;
+                        server.send_to(&buf[..len], peer).await.unwrap();
+                    }
+                }
+                requests
+            };
+            let (summary, requests) = tokio::join!(run, fixture);
+            assert_eq!(summary.sent, expected);
+            assert_eq!(summary.received, if respond { expected } else { 0 });
+            assert_eq!(requests, if respond { expected } else { 1 });
+        }
+    }
+
+    #[tokio::test]
+    async fn deadline_preserves_completed_metrics_after_finite_lock_wait() {
+        let path = std::env::temp_dir().join(format!(
+            "clockping-deadline-{}-{}.jsonl",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let server = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let prober = GtpProber::new(
+            GtpVariant::V1u,
+            "127.0.0.1".to_owned(),
+            Some(server.local_addr().unwrap().port()),
+            Duration::from_secs(1),
+        )
+        .await
+        .unwrap();
+        let sink = MetricsFileSink::with_prefix_and_labels(
+            &path,
+            MetricsFileFormat::Jsonl,
+            "clockping",
+            std::iter::empty::<(String, String)>(),
+        )
+        .unwrap();
+        let metrics = MetricsReporter::new(None, Some(sink)).shared();
+        let guard = metrics.lock().await;
+        let run = run_probe_loop(
+            prober,
+            RunnerConfig {
+                interval: Duration::from_millis(10),
+                count: None,
+                deadline: Some(Duration::from_millis(50)),
+            },
+            Output::new(
+                TimestampFormatter::new(TimestampKind::None, None),
+                false,
+                false,
+            ),
+            true,
+            Some(metrics.clone()),
+        );
+        let fixture = async {
+            let mut buf = [0; 64];
+            let (len, peer) = server.recv_from(&mut buf).await.unwrap();
+            buf[1] = 2;
+            server.send_to(&buf[..len], peer).await.unwrap();
+        };
+        let release = async {
+            time::sleep(Duration::from_millis(80)).await;
+            drop(guard);
+        };
+        let (summary, (), ()) = time::timeout(Duration::from_millis(400), async {
+            tokio::join!(run, fixture, release)
+        })
+        .await
+        .unwrap();
+        let summary = summary.unwrap();
+        assert_eq!((summary.sent, summary.received), (1, 1));
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(text.lines().count(), 1);
+        let event: serde_json::Value = serde_json::from_str(text.trim()).unwrap();
+        assert_eq!(event["status"], "reply");
+        assert_eq!(event["sent"], 1);
+        assert_eq!(
+            server.try_recv(&mut [0; 64]).unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
+        );
+        std::fs::remove_file(path).unwrap();
+    }
 
     #[test]
     fn summary_aggregates_many_rtts_without_sample_retention() {

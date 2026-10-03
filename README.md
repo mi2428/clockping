@@ -42,6 +42,8 @@ $ make -C clockping install
 Pick a probe mode, pass one or more targets, and let clockping print timestamped probe events until the count, deadline, or interrupt stops the run.
 Output and metrics options are global, so they can be placed before or after the mode name.
 
+The deadline bounds probe scheduling and active probe waits. Completed results are committed to file metrics before stdout or cancellable Pushgateway delivery, so cancellation does not discard a completed file event. Initialization, synchronous file/stdout I/O, and bounded final metrics cleanup are additional work, not a hard wall-clock process deadline.
+
 ### DNS and long-running probes
 
 A hostname in TCP, native ICMP, or GTP identifies an **initial DNS snapshot**, not a continuously refreshed service:
