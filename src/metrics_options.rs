@@ -75,25 +75,25 @@ impl MetricsOptions {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct MetricsOptionState {
     options: RawMetricsOptions,
     seen: SeenMetricsOptions,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct RawMetricsOptions {
     push_url: Option<String>,
-    push_job: String,
+    push_job: Option<String>,
     push_labels: Vec<(String, String)>,
-    push_timeout: Duration,
-    push_retries: u32,
-    push_user_agent: String,
-    metrics_prefix: String,
+    push_timeout: Option<Duration>,
+    push_retries: Option<u32>,
+    push_user_agent: Option<String>,
+    metrics_prefix: Option<String>,
     push_interval: Option<Duration>,
-    push_delete_on_exit: bool,
+    push_delete_on_exit: Option<bool>,
     metrics_file: Option<PathBuf>,
-    metrics_format: MetricsFileFormat,
+    metrics_format: Option<MetricsFileFormat>,
     metrics_labels: Vec<(String, String)>,
 }
 
@@ -108,72 +108,136 @@ struct SeenMetricsOptions {
 }
 
 impl MetricsOptionState {
-    fn from_env(get_env: &mut impl FnMut(&str) -> Option<String>) -> anyhow::Result<Self> {
-        let push_url = get_env("CLOCKPING_PUSH_URL");
-        let push_job = get_env("CLOCKPING_PUSH_JOB")
+    fn finish(
+        self,
+        informational: bool,
+        get_env: &mut impl FnMut(&str) -> Option<String>,
+    ) -> anyhow::Result<MetricsOptions> {
+        let push_url = self
+            .options
+            .push_url
+            .or_else(|| get_env("CLOCKPING_PUSH_URL"));
+        let push_job = self
+            .options
+            .push_job
+            .or_else(|| get_env("CLOCKPING_PUSH_JOB"))
             .unwrap_or_else(|| PushGatewayConfig::DEFAULT_JOB.to_owned());
-        let push_labels = get_env("CLOCKPING_PUSH_LABELS")
+        let mut push_labels = get_env("CLOCKPING_PUSH_LABELS")
             .map(|raw| parse_env_labels("CLOCKPING_PUSH_LABELS", &raw, true))
             .transpose()?
             .unwrap_or_default();
-        let push_timeout = get_env("CLOCKPING_PUSH_TIMEOUT")
-            .map(|raw| parse_duration_option("CLOCKPING_PUSH_TIMEOUT", &raw))
+        push_labels.extend(self.options.push_labels);
+        let push_timeout = self
+            .options
+            .push_timeout
+            .map(Ok)
+            .or_else(|| {
+                get_env("CLOCKPING_PUSH_TIMEOUT")
+                    .map(|raw| parse_duration_option("CLOCKPING_PUSH_TIMEOUT", &raw))
+            })
             .transpose()?
             .unwrap_or_else(PushGatewayConfig::default_timeout);
-        let push_retries = get_env("CLOCKPING_PUSH_RETRIES")
-            .map(|raw| parse_retries("CLOCKPING_PUSH_RETRIES", &raw))
+        let push_retries = self
+            .options
+            .push_retries
+            .map(Ok)
+            .or_else(|| {
+                get_env("CLOCKPING_PUSH_RETRIES")
+                    .map(|raw| parse_retries("CLOCKPING_PUSH_RETRIES", &raw))
+            })
             .transpose()?
             .unwrap_or(PushGatewayConfig::DEFAULT_RETRIES);
-        let push_user_agent = get_env("CLOCKPING_PUSH_USER_AGENT")
-            .map(|raw| parse_user_agent("CLOCKPING_PUSH_USER_AGENT", &raw))
+        let push_user_agent = self
+            .options
+            .push_user_agent
+            .map(Ok)
+            .or_else(|| {
+                get_env("CLOCKPING_PUSH_USER_AGENT")
+                    .map(|raw| parse_user_agent("CLOCKPING_PUSH_USER_AGENT", &raw))
+            })
             .transpose()?
             .unwrap_or_else(PushGatewayConfig::default_user_agent);
-        let metrics_prefix = get_env("CLOCKPING_METRICS_PREFIX")
-            .map(|raw| parse_metric_prefix("CLOCKPING_METRICS_PREFIX", &raw))
+        let metrics_prefix = self
+            .options
+            .metrics_prefix
+            .map(Ok)
+            .or_else(|| {
+                get_env("CLOCKPING_METRICS_PREFIX")
+                    .map(|raw| parse_metric_prefix("CLOCKPING_METRICS_PREFIX", &raw))
+            })
             .transpose()?
             .unwrap_or_else(|| PushGatewayConfig::DEFAULT_METRIC_PREFIX.to_owned());
-        let push_interval = get_env("CLOCKPING_PUSH_INTERVAL")
-            .map(|raw| parse_duration_option("CLOCKPING_PUSH_INTERVAL", &raw))
+        let push_interval = self
+            .options
+            .push_interval
+            .map(Ok)
+            .or_else(|| {
+                get_env("CLOCKPING_PUSH_INTERVAL")
+                    .map(|raw| parse_duration_option("CLOCKPING_PUSH_INTERVAL", &raw))
+            })
             .transpose()?;
-        let push_delete_on_exit = get_env("CLOCKPING_PUSH_DELETE_ON_EXIT")
-            .map(|raw| parse_bool_option("CLOCKPING_PUSH_DELETE_ON_EXIT", &raw))
+        let push_delete_on_exit = self
+            .options
+            .push_delete_on_exit
+            .map(Ok)
+            .or_else(|| {
+                get_env("CLOCKPING_PUSH_DELETE_ON_EXIT")
+                    .map(|raw| parse_bool_option("CLOCKPING_PUSH_DELETE_ON_EXIT", &raw))
+            })
             .transpose()?
             .unwrap_or(false);
-        let metrics_file = get_env("CLOCKPING_METRICS_FILE").map(PathBuf::from);
-        let raw_metrics_format = get_env("CLOCKPING_METRICS_FORMAT");
-        let metrics_format = raw_metrics_format
-            .as_deref()
-            .map(|raw| parse_metrics_format("CLOCKPING_METRICS_FORMAT", raw))
-            .transpose()?
-            .unwrap_or(MetricsFileFormat::Jsonl);
-        let metrics_labels = get_env("CLOCKPING_METRICS_LABELS")
+        let metrics_file = self
+            .options
+            .metrics_file
+            .or_else(|| get_env("CLOCKPING_METRICS_FILE").map(PathBuf::from));
+        let metrics_format = self
+            .options
+            .metrics_format
+            .map(Ok)
+            .or_else(|| {
+                get_env("CLOCKPING_METRICS_FORMAT")
+                    .map(|raw| parse_metrics_format("CLOCKPING_METRICS_FORMAT", &raw))
+            })
+            .transpose()?;
+        let mut metrics_labels = get_env("CLOCKPING_METRICS_LABELS")
             .map(|raw| parse_env_labels("CLOCKPING_METRICS_LABELS", &raw, false))
             .transpose()?
             .unwrap_or_default();
+        metrics_labels.extend(self.options.metrics_labels);
 
         let seen = SeenMetricsOptions {
             push_label: !push_labels.is_empty(),
-            metrics_setting: raw_metrics_format.is_some(),
+            metrics_setting: metrics_format.is_some(),
             metrics_label: !metrics_labels.is_empty(),
-            ..SeenMetricsOptions::default()
+            ..self.seen
         };
-
-        Ok(Self {
-            options: RawMetricsOptions {
-                push_url,
-                push_job,
-                push_labels,
-                push_timeout,
-                push_retries,
-                push_user_agent,
-                metrics_prefix,
-                push_interval,
-                push_delete_on_exit,
-                metrics_file,
+        let metrics_format = metrics_format.unwrap_or(MetricsFileFormat::Jsonl);
+        let push_url = push_url.as_deref().map(parse_url).transpose()?;
+        if !informational {
+            validate_option_dependencies(ValidationContext {
+                push_enabled: push_url.is_some(),
+                file_enabled: metrics_file.is_some(),
+                seen: &seen,
                 metrics_format,
-                metrics_labels,
-            },
-            seen,
+                push_job: &push_job,
+                push_labels: &push_labels,
+                metrics_labels: &metrics_labels,
+            })?;
+        }
+
+        Ok(MetricsOptions {
+            push_url,
+            push_job,
+            push_labels,
+            push_timeout,
+            push_retries,
+            push_user_agent,
+            metrics_prefix,
+            push_interval,
+            push_delete_on_exit,
+            metrics_file,
+            metrics_format,
+            metrics_labels,
         })
     }
 
@@ -185,7 +249,7 @@ impl MetricsOptionState {
         match option {
             "--push.url" => self.options.push_url = Some(value.to_owned()),
             "--push.job" => {
-                self.options.push_job = value.to_owned();
+                self.options.push_job = Some(value.to_owned());
                 self.seen.push_job = true;
             }
             "--push.label" => {
@@ -201,19 +265,19 @@ impl MetricsOptionState {
                 self.seen.metrics_label = true;
             }
             "--push.timeout" => {
-                self.options.push_timeout = parse_duration_option(option, value)?;
+                self.options.push_timeout = Some(parse_duration_option(option, value)?);
                 self.seen.push_setting = true;
             }
             "--push.retries" => {
-                self.options.push_retries = parse_retries(option, value)?;
+                self.options.push_retries = Some(parse_retries(option, value)?);
                 self.seen.push_setting = true;
             }
             "--push.user-agent" => {
-                self.options.push_user_agent = parse_user_agent(option, value)?;
+                self.options.push_user_agent = Some(parse_user_agent(option, value)?);
                 self.seen.push_setting = true;
             }
             "--metrics.prefix" => {
-                self.options.metrics_prefix = parse_metric_prefix(option, value)?;
+                self.options.metrics_prefix = Some(parse_metric_prefix(option, value)?);
                 self.seen.metric_prefix = true;
             }
             "--push.interval" => {
@@ -221,12 +285,12 @@ impl MetricsOptionState {
                 self.seen.push_setting = true;
             }
             "--push.delete-on-exit" => {
-                self.options.push_delete_on_exit = parse_bool_option(option, value)?;
+                self.options.push_delete_on_exit = Some(parse_bool_option(option, value)?);
                 self.seen.push_setting = true;
             }
             "--metrics.file" => self.options.metrics_file = Some(PathBuf::from(value)),
             "--metrics.format" => {
-                self.options.metrics_format = parse_metrics_format(option, value)?;
+                self.options.metrics_format = Some(parse_metrics_format(option, value)?);
                 self.seen.metrics_setting = true;
             }
             _ => return Ok(false),
@@ -242,7 +306,7 @@ impl MetricsOptionState {
     ) -> anyhow::Result<bool> {
         match option {
             "--push.delete-on-exit" => {
-                self.options.push_delete_on_exit = true;
+                self.options.push_delete_on_exit = Some(true);
                 self.seen.push_setting = true;
                 *index += 1;
             }
@@ -256,41 +320,6 @@ impl MetricsOptionState {
             _ => return Ok(false),
         }
         Ok(true)
-    }
-
-    fn finish(self, informational: bool) -> anyhow::Result<MetricsOptions> {
-        let push_url = self
-            .options
-            .push_url
-            .as_deref()
-            .map(parse_url)
-            .transpose()?;
-        if !informational {
-            validate_option_dependencies(ValidationContext {
-                push_enabled: push_url.is_some(),
-                file_enabled: self.options.metrics_file.is_some(),
-                seen: &self.seen,
-                metrics_format: self.options.metrics_format,
-                push_job: &self.options.push_job,
-                push_labels: &self.options.push_labels,
-                metrics_labels: &self.options.metrics_labels,
-            })?;
-        }
-
-        Ok(MetricsOptions {
-            push_url,
-            push_job: self.options.push_job,
-            push_labels: self.options.push_labels,
-            push_timeout: self.options.push_timeout,
-            push_retries: self.options.push_retries,
-            push_user_agent: self.options.push_user_agent,
-            metrics_prefix: self.options.metrics_prefix,
-            push_interval: self.options.push_interval,
-            push_delete_on_exit: self.options.push_delete_on_exit,
-            metrics_file: self.options.metrics_file,
-            metrics_format: self.options.metrics_format,
-            metrics_labels: self.options.metrics_labels,
-        })
     }
 }
 
@@ -333,7 +362,7 @@ fn extract_metrics_options_with_env(
         if informational { None } else { get_env(key) }
     };
 
-    let mut state = MetricsOptionState::from_env(&mut env_lookup)?;
+    let mut state = MetricsOptionState::default();
 
     let mut i = 0;
     while i < rest.len() {
@@ -367,7 +396,7 @@ fn extract_metrics_options_with_env(
         i += 1;
     }
 
-    Ok((state.finish(informational)?, pass_through))
+    Ok((state.finish(informational, &mut env_lookup)?, pass_through))
 }
 
 struct ValidationContext<'a> {
@@ -759,6 +788,139 @@ mod tests {
 
         assert!(!options.push_delete_on_exit);
         assert_eq!(cli, ["clockping", "tcp", "127.0.0.1:80"]);
+    }
+
+    #[test]
+    fn scalar_cli_values_override_invalid_env_defaults() {
+        for (option, variable, valid, invalid) in [
+            (
+                "--push.url",
+                "CLOCKPING_PUSH_URL",
+                "localhost:9091",
+                "://bad",
+            ),
+            ("--push.job", "CLOCKPING_PUSH_JOB", "net", ""),
+            ("--push.timeout", "CLOCKPING_PUSH_TIMEOUT", "1s", "invalid"),
+            ("--push.retries", "CLOCKPING_PUSH_RETRIES", "2", "invalid"),
+            (
+                "--push.user-agent",
+                "CLOCKPING_PUSH_USER_AGENT",
+                "test/1",
+                "",
+            ),
+            (
+                "--metrics.prefix",
+                "CLOCKPING_METRICS_PREFIX",
+                "nettest",
+                "bad-prefix",
+            ),
+            (
+                "--push.interval",
+                "CLOCKPING_PUSH_INTERVAL",
+                "2s",
+                "invalid",
+            ),
+            (
+                "--push.delete-on-exit",
+                "CLOCKPING_PUSH_DELETE_ON_EXIT",
+                "true",
+                "invalid",
+            ),
+            (
+                "--metrics.format",
+                "CLOCKPING_METRICS_FORMAT",
+                "prometheus",
+                "xml",
+            ),
+        ] {
+            let base_env = |key: &str| match key {
+                "CLOCKPING_PUSH_URL" => Some("localhost:9091".to_owned()),
+                "CLOCKPING_METRICS_FILE" => Some("metrics.prom".to_owned()),
+                _ => None,
+            };
+            let base_args = vec!["clockping".into(), "tcp".into(), "127.0.0.1:80".into()];
+            let (expected, _) = extract_metrics_options_with_env(base_args.clone(), |key| {
+                if key == variable {
+                    Some(valid.to_owned())
+                } else {
+                    base_env(key)
+                }
+            })
+            .unwrap();
+            for override_args in [
+                vec![format!("{option}={valid}").into()],
+                if option == "--push.delete-on-exit" {
+                    vec![option.into()]
+                } else {
+                    vec![option.into(), valid.into()]
+                },
+            ] {
+                let mut args = base_args.clone();
+                args.extend(override_args);
+                let (options, cli) = extract_metrics_options_with_env(args, |key| {
+                    assert_ne!(key, variable, "overridden env must not be read: {variable}");
+                    base_env(key)
+                })
+                .unwrap();
+                assert_eq!(
+                    metrics_options_snapshot(&options),
+                    metrics_options_snapshot(&expected)
+                );
+                assert_eq!(cli, base_args);
+            }
+            let error = extract_metrics_options_with_env(base_args, |key| {
+                if key == variable {
+                    Some(invalid.to_owned())
+                } else {
+                    base_env(key)
+                }
+            })
+            .unwrap_err();
+            assert!(!error.to_string().is_empty(), "{variable}");
+        }
+
+        for args in [
+            vec!["clockping".into(), "--metrics.file=cli.prom".into()],
+            vec![
+                "clockping".into(),
+                "--metrics.file".into(),
+                "cli.prom".into(),
+            ],
+        ] {
+            let (options, _) = extract_metrics_options_with_env(args, |key| {
+                assert_ne!(key, "CLOCKPING_METRICS_FILE");
+                None
+            })
+            .unwrap();
+            assert_eq!(options.metrics_file, Some(PathBuf::from("cli.prom")));
+        }
+
+        // Only parsed options override defaults, not option-like values or arguments after --.
+        for args in [
+            vec![
+                "clockping".into(),
+                "--push.job".into(),
+                "--push.timeout".into(),
+            ],
+            vec!["clockping".into(), "--".into(), "--push.timeout=1s".into()],
+            vec!["clockping".into(), "--push.timeout=invalid".into()],
+        ] {
+            assert!(
+                extract_metrics_options_with_env(args, |key| match key {
+                    "CLOCKPING_PUSH_URL" => Some("localhost:9091".to_owned()),
+                    "CLOCKPING_PUSH_TIMEOUT" => Some("invalid".to_owned()),
+                    _ => None,
+                })
+                .is_err()
+            );
+        }
+
+        for flag in ["--help", "help", "-h", "--version", "-V"] {
+            extract_metrics_options_with_env(vec!["clockping".into(), flag.into()], |_| {
+                panic!("informational requests must not read env defaults")
+            })
+            .unwrap();
+        }
     }
 
     #[test]
