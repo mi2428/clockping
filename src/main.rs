@@ -109,9 +109,7 @@ async fn run() -> anyhow::Result<ExitCode> {
                     .expect("metrics options should be consumed once")
                     .into_reporter()?
                     .map(|reporter| reporter.shared());
-                let summaries =
-                    run_probers(probers, runner_config, output, quiet, metrics.clone()).await?;
-                finish_metrics(metrics).await;
+                let summaries = run_probers(probers, runner_config, output, quiet, metrics).await?;
                 exit_code = exit_code_for_summaries(&summaries);
             }
         },
@@ -137,9 +135,7 @@ async fn run() -> anyhow::Result<ExitCode> {
                 .expect("metrics options should be consumed once")
                 .into_reporter()?
                 .map(|reporter| reporter.shared());
-            let summaries =
-                run_probers(probers, runner_config, output, quiet, metrics.clone()).await?;
-            finish_metrics(metrics).await;
+            let summaries = run_probers(probers, runner_config, output, quiet, metrics).await?;
             exit_code = exit_code_for_summaries(&summaries);
         }
         Command::Http(command) => {
@@ -182,9 +178,7 @@ async fn run() -> anyhow::Result<ExitCode> {
                 .expect("metrics options should be consumed once")
                 .into_reporter()?
                 .map(|reporter| reporter.shared());
-            let summaries =
-                run_probers(probers, runner_config, output, quiet, metrics.clone()).await?;
-            finish_metrics(metrics).await;
+            let summaries = run_probers(probers, runner_config, output, quiet, metrics).await?;
             exit_code = exit_code_for_summaries(&summaries);
         }
         Command::Gtp(command) => {
@@ -213,9 +207,7 @@ async fn run() -> anyhow::Result<ExitCode> {
                 .expect("metrics options should be consumed once")
                 .into_reporter()?
                 .map(|reporter| reporter.shared());
-            let summaries =
-                run_probers(probers, runner_config, output, quiet, metrics.clone()).await?;
-            finish_metrics(metrics).await;
+            let summaries = run_probers(probers, runner_config, output, quiet, metrics).await?;
             exit_code = exit_code_for_summaries(&summaries);
         }
     }
@@ -233,31 +225,43 @@ async fn run_probers<P>(
 where
     P: Prober + Send + 'static,
 {
-    let mut tasks = JoinSet::new();
-    for (index, prober) in probers.into_iter().enumerate() {
-        let task_output = output.clone();
-        let task_metrics = metrics.clone();
-        tasks.spawn(async move {
-            run_probe_loop(prober, config, task_output, quiet, task_metrics)
-                .await
-                .map(|summary| (index, summary))
-        });
-    }
+    let result = async {
+        let mut tasks = JoinSet::new();
+        for (index, prober) in probers.into_iter().enumerate() {
+            let task_output = output.clone();
+            let task_metrics = metrics.clone();
+            tasks.spawn(async move {
+                run_probe_loop(prober, config, task_output, quiet, task_metrics)
+                    .await
+                    .map(|summary| (index, summary))
+            });
+        }
 
-    let mut summaries = Vec::new();
-    while let Some(result) = tasks.join_next().await {
-        summaries.push(result??);
-    }
+        let mut summaries = Vec::new();
+        while let Some(result) = tasks.join_next().await {
+            match result.map_err(anyhow::Error::from).flatten() {
+                Ok(summary) => summaries.push(summary),
+                Err(error) => {
+                    // Join all canceled producers before flushing/deleting their shared sink.
+                    tasks.shutdown().await;
+                    return Err(error);
+                }
+            }
+        }
 
-    summaries.sort_by_key(|(index, _)| *index);
-    let summaries = summaries
-        .into_iter()
-        .map(|(_, summary)| summary)
-        .collect::<Vec<_>>();
-    for summary in &summaries {
-        output.print_summary(summary, quiet)?;
+        summaries.sort_by_key(|(index, _)| *index);
+        let summaries = summaries
+            .into_iter()
+            .map(|(_, summary)| summary)
+            .collect::<Vec<_>>();
+        for summary in &summaries {
+            output.print_summary(summary, quiet)?;
+        }
+        Ok(summaries)
     }
-    Ok(summaries)
+    .await;
+    finish_metrics(metrics).await;
+    result
 }
 
 async fn finish_metrics(metrics: Option<SharedMetricsReporter>) {
@@ -316,6 +320,69 @@ fn exit_code_for_summaries(summaries: &[Summary]) -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn task_failure_aborts_and_joins_other_producers_before_returning() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        };
+
+        struct TestProber {
+            fail: bool,
+            dropped: Arc<AtomicUsize>,
+        }
+        impl Drop for TestProber {
+            fn drop(&mut self) {
+                self.dropped.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+        #[async_trait::async_trait]
+        impl Prober for TestProber {
+            fn protocol(&self) -> &'static str {
+                "tcp"
+            }
+            fn target(&self) -> &str {
+                if self.fail { "failing" } else { "pending" }
+            }
+            async fn probe(&mut self, _: u64) -> event::ProbeOutcome {
+                tokio::time::sleep(if self.fail {
+                    Duration::from_millis(20)
+                } else {
+                    Duration::from_secs(10)
+                })
+                .await;
+                panic!("primary probe task failure");
+            }
+        }
+        let dropped = Arc::new(AtomicUsize::new(0));
+        let probers = [true, false]
+            .into_iter()
+            .map(|fail| TestProber {
+                fail,
+                dropped: dropped.clone(),
+            })
+            .collect();
+        let result = tokio::time::timeout(
+            Duration::from_secs(1),
+            run_probers(
+                probers,
+                RunnerConfig {
+                    interval: Duration::ZERO,
+                    count: Some(1),
+                    deadline: None,
+                },
+                make_output(TimestampKind::None, None, false, false, false),
+                true,
+                None,
+            ),
+        )
+        .await
+        .unwrap()
+        .unwrap_err();
+        assert!(result.to_string().contains("primary probe task failure"));
+        assert_eq!(dropped.load(Ordering::SeqCst), 2);
+    }
 
     #[test]
     fn exit_code_fails_when_every_probe_is_lost() {

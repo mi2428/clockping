@@ -166,14 +166,14 @@ pub fn spawn_pushgateway_reply_capture(
                 );
                 match listener.accept() {
                     Ok((mut stream, _)) => {
-                        if let Some(request) = read_pushgateway_request(&mut stream) {
-                            let _ = tx.send(request);
-                            thread::sleep(delay);
-                            let response = format!(
-                                "HTTP/1.1 {status} Test\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
-                            );
-                            let _ = io::Write::write_all(&mut stream, response.as_bytes());
-                        }
+                        let request = read_pushgateway_request(&mut stream)
+                            .expect("complete capture request");
+                        let _ = tx.send(request);
+                        thread::sleep(delay);
+                        let response = format!(
+                            "HTTP/1.1 {status} Test\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                        );
+                        let _ = io::Write::write_all(&mut stream, response.as_bytes());
                         break;
                     }
                     Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
@@ -188,6 +188,10 @@ pub fn spawn_pushgateway_reply_capture(
 }
 
 fn read_pushgateway_request(stream: &mut TcpStream) -> Option<CapturedHttpRequest> {
+    // BSD/macOS accept can inherit nonblocking mode from the fixture listener.
+    stream
+        .set_nonblocking(false)
+        .expect("blocking capture stream");
     stream
         .set_read_timeout(Some(Duration::from_secs(3)))
         .expect("failed to set Pushgateway capture read timeout");
@@ -221,6 +225,25 @@ fn read_pushgateway_request(stream: &mut TcpStream) -> Option<CapturedHttpReques
     let body = String::from_utf8_lossy(&buffer[header_end..body_end]).to_string();
     let request_line = headers.lines().next().unwrap_or_default().to_string();
     Some(CapturedHttpRequest { request_line, body })
+}
+
+#[test]
+fn capture_waits_for_headers_and_body_on_nonblocking_listener() {
+    let (url, requests, server) = spawn_pushgateway_reply_capture(&[202], Duration::ZERO);
+    let mut stream = TcpStream::connect(url.strip_prefix("http://").unwrap()).unwrap();
+    thread::sleep(Duration::from_millis(50));
+    io::Write::write_all(
+        &mut stream,
+        b"PUT /metrics/job/test HTTP/1.1\r\nHost: localhost\r\nContent-Length: 4\r\n\r\n",
+    )
+    .unwrap();
+    thread::sleep(Duration::from_millis(50));
+    io::Write::write_all(&mut stream, b"test").unwrap();
+    assert_eq!(
+        requests.recv_timeout(Duration::from_secs(3)).unwrap().body,
+        "test"
+    );
+    server.join().unwrap();
 }
 
 fn parse_content_length(line: &str) -> Option<usize> {

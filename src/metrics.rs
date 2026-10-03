@@ -107,6 +107,7 @@ pub struct MetricsReporter {
     latest_intervals: BTreeMap<MetricsKey, ProbeMetrics>,
     latest_windows: BTreeMap<MetricsKey, WindowMetrics>,
     windows: BTreeMap<MetricsKey, WindowState>,
+    snapshot_pending: bool,
 }
 
 impl MetricsReporter {
@@ -117,6 +118,7 @@ impl MetricsReporter {
             latest_intervals: BTreeMap::new(),
             latest_windows: BTreeMap::new(),
             windows: BTreeMap::new(),
+            snapshot_pending: false,
         }
     }
 
@@ -151,6 +153,7 @@ impl MetricsReporter {
         {
             Ok(self.record_window(metrics))
         } else if let Some(pushgateway) = &self.pushgateway {
+            self.snapshot_pending = true;
             Ok(Some(pushgateway.pending(false)))
         } else {
             Ok(None)
@@ -159,6 +162,14 @@ impl MetricsReporter {
 
     pub async fn finish(&mut self) {
         let deadline = tokio::time::Instant::now() + PUSH_SHUTDOWN_TIMEOUT;
+        if self.snapshot_pending {
+            let sink = self
+                .pushgateway
+                .as_ref()
+                .expect("pending snapshot has transport");
+            let pending = sink.pending(sink.interval.is_some());
+            self.enqueue_final_snapshot(pending, deadline).await;
+        }
         if self
             .pushgateway
             .as_ref()
@@ -168,15 +179,7 @@ impl MetricsReporter {
             let keys = self.windows.keys().cloned().collect::<Vec<_>>();
             for key in keys {
                 if let Some(pending) = self.flush_window(&key) {
-                    match tokio::time::timeout_at(deadline, pending.sender.reserve()).await {
-                        Ok(Ok(permit)) => permit.send(self.snapshot(true)),
-                        Ok(Err(error)) => {
-                            eprintln!("failed to queue final window metrics: {error:#}")
-                        }
-                        Err(_) => eprintln!(
-                            "final window metrics were not queued before shutdown timeout"
-                        ),
-                    }
+                    self.enqueue_final_snapshot(pending, deadline).await;
                 }
             }
         }
@@ -214,12 +217,26 @@ impl MetricsReporter {
         let window = self.windows.remove(key)?;
         let metrics = aggregate_window(&window.samples)?;
         self.latest_windows.insert(key.clone(), metrics);
+        self.snapshot_pending = true;
         self.pushgateway
             .as_ref()
             .map(|pushgateway| pushgateway.pending(true))
     }
 
-    fn snapshot(&self, window: bool) -> PushBatch {
+    async fn enqueue_final_snapshot(
+        &mut self,
+        pending: PendingPush,
+        deadline: tokio::time::Instant,
+    ) {
+        match tokio::time::timeout_at(deadline, pending.sender.reserve()).await {
+            Ok(Ok(permit)) => permit.send(self.snapshot(pending.window)),
+            Ok(Err(error)) => eprintln!("failed to queue final metrics: {error:#}"),
+            Err(_) => eprintln!("final metrics were not queued before shutdown timeout"),
+        }
+    }
+
+    fn snapshot(&mut self, window: bool) -> PushBatch {
+        self.snapshot_pending = false;
         if window {
             PushBatch::Windows(self.latest_windows.values().cloned().collect())
         } else {
@@ -277,7 +294,7 @@ impl PendingPush {
             .map_err(|_| anyhow::anyhow!("metrics transport task stopped"))?;
         // Build and enqueue under the same lock, so concurrent targets cannot send
         // a stale, single-target snapshot after a newer multi-target snapshot.
-        let reporter = reporter.lock().await;
+        let mut reporter = reporter.lock().await;
         permit.send(reporter.snapshot(self.window));
         Ok(())
     }
@@ -405,8 +422,9 @@ fn current_unix_timestamp_seconds() -> f64 {
 mod tests {
     use super::*;
 
-    #[tokio::test]
-    async fn queued_snapshots_cannot_regress_target_identity_and_queue_is_bounded() {
+    fn reporter_with_capture(
+        interval: Option<Duration>,
+    ) -> (SharedMetricsReporter, mpsc::Receiver<PushBatch>) {
         use crate::pushgateway::PushGatewayConfig;
 
         let gateway = PushGateway::new(PushGatewayConfig {
@@ -420,11 +438,17 @@ mod tests {
             delete_on_finish: false,
         })
         .unwrap();
-        let (sender, mut receiver) = mpsc::channel(PUSH_QUEUE_CAPACITY);
-        let mut sink = PushGatewaySink::new(gateway, None);
-        sink.sender = Some(sender.clone());
-        let reporter = Arc::new(Mutex::new(MetricsReporter::new(Some(sink), None)));
-        let sample = |target: &str| ProbeMetrics {
+        let (sender, receiver) = mpsc::channel(PUSH_QUEUE_CAPACITY);
+        let mut sink = PushGatewaySink::new(gateway, interval);
+        sink.sender = Some(sender);
+        (
+            Arc::new(Mutex::new(MetricsReporter::new(Some(sink), None))),
+            receiver,
+        )
+    }
+
+    fn sample(target: &str) -> ProbeMetrics {
+        ProbeMetrics {
             timestamp_unix_seconds: 1.0,
             protocol: "tcp".to_owned(),
             target: target.to_owned(),
@@ -438,7 +462,22 @@ mod tests {
             rtt_seconds: Some(0.001),
             bytes: None,
             ttl: None,
-        };
+        }
+    }
+
+    #[tokio::test]
+    async fn queued_snapshots_cannot_regress_target_identity_and_queue_is_bounded() {
+        let (reporter, mut receiver) = reporter_with_capture(None);
+        let sender = reporter
+            .lock()
+            .await
+            .pushgateway
+            .as_ref()
+            .unwrap()
+            .sender
+            .as_ref()
+            .unwrap()
+            .clone();
         let first = reporter
             .lock()
             .await
@@ -478,6 +517,30 @@ mod tests {
         );
         // A backpressured producer does not own the aggregation lock.
         assert!(reporter.try_lock().is_ok());
+    }
+
+    #[tokio::test]
+    async fn finish_keeps_unqueued_closed_window_before_partial_window() {
+        let (reporter, mut receiver) = reporter_with_capture(Some(Duration::from_secs(1)));
+        {
+            let mut reporter = reporter.lock().await;
+            assert!(reporter.record(sample("one:443")).unwrap().is_none());
+            reporter.windows.values_mut().next().unwrap().started -= Duration::from_secs(1);
+            let mut second = sample("one:443");
+            second.timestamp_unix_seconds = 2.0;
+            second.rtt_seconds = Some(0.002);
+            let pending = reporter.record(second).unwrap().unwrap();
+            drop(pending); // stdout failure before enqueue.
+            reporter.finish().await;
+        }
+        for expected_mean in [0.001, 0.002] {
+            let PushBatch::Windows(snapshot) = receiver.recv().await.unwrap() else {
+                panic!("wrong snapshot kind")
+            };
+            assert_eq!(snapshot.len(), 1);
+            assert_eq!(snapshot[0].samples, 1);
+            assert_eq!(snapshot[0].rtt_mean_seconds, Some(expected_mean));
+        }
     }
 
     #[test]

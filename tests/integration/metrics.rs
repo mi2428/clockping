@@ -335,7 +335,13 @@ fn slow_pushgateway_does_not_delay_multi_target_events_or_file_samples() {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    requests.recv_timeout(Duration::from_secs(3)).unwrap();
+    if let Err(error) = requests.recv_timeout(Duration::from_secs(3)) {
+        let status = wait_for_child(&mut child, Duration::from_secs(3));
+        panic!(
+            "slow sink request missing: {error}; status={status}; stderr={}",
+            child_stderr(&mut child)
+        );
+    }
     let reporting = Instant::now();
     assert!(wait_for_child(&mut child, Duration::from_millis(1600)).success());
     assert!(reporting.elapsed() < Duration::from_millis(1600));
@@ -433,6 +439,197 @@ fn reporting_backpressure_remains_interruptible_and_deadline_bounded() {
         );
         assert_contains(&stderr, "unfinished pushes were canceled");
         assert_contains(&child_stdout(&mut child), "probes transmitted");
+        fs::remove_file(path).unwrap();
+        server.join().unwrap();
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn delete_on_exit_covers_success_cancel_broken_pipe_and_disabled_option() {
+    use std::process::{Command, Stdio};
+
+    for mode in ["success", "cancel", "broken-pipe", "disabled"] {
+        let target = spawn_tcp_acceptor(2);
+        let (url, requests, server) = spawn_pushgateway_reply_capture(
+            if mode == "disabled" {
+                &[202]
+            } else {
+                &[202, 202]
+            },
+            Duration::ZERO,
+        );
+        let mut command = Command::new(clockping_bin());
+        command.args(["--push.url", &url, "tcp", "-c", "2", "-i", "1", &target]);
+        if mode != "disabled" {
+            command.arg("--push.delete-on-exit");
+        }
+        if mode != "cancel" {
+            command.args(["--push.interval", "10s"]);
+        }
+        set_own_process_group(&mut command);
+        let mut child = command
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        if mode == "broken-pipe" {
+            drop(child.stdout.take());
+        }
+        let first = requests.recv_timeout(Duration::from_secs(4)).unwrap();
+        assert_contains(&first.request_line, "PUT /metrics/job/clockping ");
+        if mode == "cancel" {
+            interrupt_process_group(child.id());
+        }
+        assert!(
+            wait_for_child(&mut child, Duration::from_secs(3)).success(),
+            "{mode}"
+        );
+        let stderr = child_stderr(&mut child);
+        assert!(!stderr.contains("failed to delete"), "{mode}: {stderr}");
+        if mode != "disabled" {
+            let delete = requests.recv_timeout(Duration::from_secs(3)).unwrap();
+            assert_contains(&delete.request_line, "DELETE /metrics/job/clockping ");
+        }
+        server.join().unwrap();
+        assert!(requests.try_recv().is_err(), "unexpected request in {mode}");
+    }
+}
+
+#[test]
+fn reporting_error_flushes_partial_window_and_cleanup_does_not_mask_primary_error() {
+    use std::{
+        io::{BufRead, BufReader, Read},
+        process::{Command, Stdio},
+        sync::mpsc,
+    };
+
+    for delete_status in [202, 500] {
+        let target = spawn_tcp_acceptor(2);
+        let path = temp_metrics_path("jsonl");
+        let (url, requests, server) =
+            spawn_pushgateway_reply_capture(&[202, delete_status], Duration::ZERO);
+        let mut child = Command::new(clockping_bin())
+            .args([
+                "--push.url",
+                &url,
+                "--push.interval",
+                "10s",
+                "--push.delete-on-exit",
+                "--metrics.file",
+                path.to_str().unwrap(),
+                "tcp",
+                "-c",
+                "2",
+                "-i",
+                "0.3",
+                &target,
+            ])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let stdout = child.stdout.take().unwrap();
+        let (tx, rx) = mpsc::channel();
+        let reader = std::thread::spawn(move || {
+            let mut stdout = BufReader::new(stdout);
+            let mut line = String::new();
+            stdout.read_line(&mut line).unwrap();
+            tx.send(line).unwrap();
+            let mut remainder = Vec::new();
+            stdout.read_to_end(&mut remainder).unwrap();
+        });
+        // Event output follows synchronous file/window recording, unlike partial
+        // bytes visible during JSON encoding. Wait for this completed-event boundary.
+        let first_event = rx.recv_timeout(Duration::from_secs(3)).unwrap();
+        assert_contains(&first_event, &target);
+        fs::remove_file(&path).unwrap();
+        assert!(!wait_for_child(&mut child, Duration::from_secs(3)).success());
+        let stderr = child_stderr(&mut child);
+        assert_contains(&stderr, "failed to open metrics file");
+        if delete_status == 500 {
+            assert_contains(&stderr, "failed to delete Pushgateway metrics");
+        }
+        let window = requests.recv_timeout(Duration::from_secs(3)).unwrap();
+        assert!(
+            window.body.contains("clockping_window_samples"),
+            "{window:?}\nstderr: {stderr}"
+        );
+        assert_contains(&window.body, "} 1\n");
+        let delete = requests.recv_timeout(Duration::from_secs(3)).unwrap();
+        assert_contains(&delete.request_line, "DELETE /metrics/job/clockping ");
+        reader.join().unwrap();
+        server.join().unwrap();
+    }
+}
+
+#[test]
+fn broken_stdout_preserves_completed_file_event_and_cleans_pushgateway() {
+    use std::process::{Command, Stdio};
+
+    for (format, windowed) in [
+        ("jsonl", false),
+        ("prometheus", false),
+        ("jsonl", true),
+        ("prometheus", true),
+    ] {
+        let target = spawn_tcp_acceptor(1);
+        let path = temp_metrics_path(format);
+        let (url, requests, server) = spawn_pushgateway_reply_capture(&[202, 202], Duration::ZERO);
+        let mut command = Command::new(clockping_bin());
+        command.args([
+            "--push.url",
+            &url,
+            "--push.delete-on-exit",
+            "--metrics.file",
+            path.to_str().unwrap(),
+            "--metrics.format",
+            format,
+            "tcp",
+            "-c",
+            "1",
+            &target,
+        ]);
+        if windowed {
+            command.args(["--push.interval", "10s"]);
+        }
+        let mut child = command
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        drop(child.stdout.take());
+        assert!(wait_for_child(&mut child, Duration::from_secs(3)).success());
+        let metrics = fs::read_to_string(&path).unwrap();
+        if format == "jsonl" {
+            assert_eq!(metrics.lines().count(), 1);
+            let event: Value = serde_json::from_str(metrics.trim()).unwrap();
+            assert_eq!(event["schema_version"], 1);
+            assert_eq!(event["event"], "interval");
+            assert_eq!(event["status"], "reply");
+            assert_eq!(event["seq"], 0);
+            assert_eq!(event["sent"], 1);
+            assert_eq!(event["target"], target);
+        } else {
+            assert_contains(
+                &metrics,
+                &format!("clockping_probe_sent{{protocol=\"tcp\",target=\"{target}\"}} 1\n"),
+            );
+        }
+        let push = requests.recv_timeout(Duration::from_secs(3)).unwrap();
+        let expected_metric = if windowed {
+            "clockping_window_samples"
+        } else {
+            "clockping_probe_sent"
+        };
+        assert!(
+            push.body.contains(expected_metric),
+            "format={format}, windowed={windowed}, request={push:?}, stderr={}",
+            child_stderr(&mut child)
+        );
+        let delete = requests.recv_timeout(Duration::from_secs(3)).unwrap();
+        assert_contains(&delete.request_line, "DELETE /metrics/job/clockping ");
+        assert!(!child_stderr(&mut child).contains("failed to delete"));
         fs::remove_file(path).unwrap();
         server.join().unwrap();
     }
