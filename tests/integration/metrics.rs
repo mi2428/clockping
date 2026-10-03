@@ -565,7 +565,20 @@ fn reporting_error_flushes_partial_window_and_cleanup_does_not_mask_primary_erro
 
 #[test]
 fn broken_stdout_preserves_completed_file_event_and_cleans_pushgateway() {
-    use std::process::{Command, Stdio};
+    use std::{
+        io::{Read, Write},
+        net::TcpListener,
+        process::{Child, Command, Stdio},
+        time::Instant,
+    };
+
+    struct ReapedChild(Child);
+    impl Drop for ReapedChild {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            self.0.wait().expect("reap clockping child");
+        }
+    }
 
     for (format, windowed) in [
         ("jsonl", false),
@@ -573,10 +586,21 @@ fn broken_stdout_preserves_completed_file_event_and_cleans_pushgateway() {
         ("jsonl", true),
         ("prometheus", true),
     ] {
-        let target = spawn_tcp_acceptor(1);
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let target = format!("http://{}/", listener.local_addr().unwrap());
         let path = temp_metrics_path(format);
         let (url, requests, server) = spawn_pushgateway_reply_capture(&[202, 202], Duration::ZERO);
         let mut command = Command::new(clockping_bin());
+        for (name, _) in std::env::vars_os() {
+            if name
+                .to_str()
+                .is_some_and(|name| name.starts_with("CLOCKPING_"))
+            {
+                command.env_remove(name);
+            }
+        }
+        command.env("NO_PROXY", "*").env("no_proxy", "*");
         command.args([
             "--push.url",
             &url,
@@ -585,27 +609,66 @@ fn broken_stdout_preserves_completed_file_event_and_cleans_pushgateway() {
             path.to_str().unwrap(),
             "--metrics.format",
             format,
-            "tcp",
+            "http",
             "-c",
             "1",
+            "-W",
+            "3",
             &target,
         ]);
         if windowed {
             command.args(["--push.interval", "10s"]);
         }
-        let mut child = command
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
+        let mut child = ReapedChild(
+            command
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap(),
+        );
+        let started = Instant::now();
+        let mut stream = loop {
+            match listener.accept() {
+                Ok((stream, _)) => break stream,
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    assert!(
+                        started.elapsed() < Duration::from_secs(5),
+                        "HTTP probe did not connect"
+                    );
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                Err(error) => panic!("HTTP fixture accept failed: {error}"),
+            }
+        };
+        stream.set_nonblocking(false).unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(3)))
             .unwrap();
-        drop(child.stdout.take());
-        assert!(wait_for_child(&mut child, Duration::from_secs(3)).success());
+        stream
+            .set_write_timeout(Some(Duration::from_secs(3)))
+            .unwrap();
+        let mut request = Vec::new();
+        while !request.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
+            let mut chunk = [0; 1024];
+            let length = stream.read(&mut chunk).unwrap();
+            assert!(length > 0, "HTTP probe closed before request headers");
+            request.extend_from_slice(&chunk[..length]);
+        }
+        // Gate completion on this response rather than racing process startup.
+        assert!(fs::read_to_string(&path).unwrap().is_empty());
+        drop(child.0.stdout.take());
+        stream
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+            .unwrap();
+        drop(stream);
+        assert!(wait_for_child(&mut child.0, Duration::from_secs(3)).success());
         let metrics = fs::read_to_string(&path).unwrap();
         if format == "jsonl" {
             assert_eq!(metrics.lines().count(), 1);
             let event: Value = serde_json::from_str(metrics.trim()).unwrap();
             assert_eq!(event["schema_version"], 1);
             assert_eq!(event["event"], "interval");
+            assert_eq!(event["protocol"], "http");
             assert_eq!(event["status"], "reply");
             assert_eq!(event["seq"], 0);
             assert_eq!(event["sent"], 1);
@@ -613,7 +676,7 @@ fn broken_stdout_preserves_completed_file_event_and_cleans_pushgateway() {
         } else {
             assert_contains(
                 &metrics,
-                &format!("clockping_probe_sent{{protocol=\"tcp\",target=\"{target}\"}} 1\n"),
+                &format!("clockping_probe_sent{{protocol=\"http\",target=\"{target}\"}} 1\n"),
             );
         }
         let push = requests.recv_timeout(Duration::from_secs(3)).unwrap();
@@ -625,11 +688,11 @@ fn broken_stdout_preserves_completed_file_event_and_cleans_pushgateway() {
         assert!(
             push.body.contains(expected_metric),
             "format={format}, windowed={windowed}, request={push:?}, stderr={}",
-            child_stderr(&mut child)
+            child_stderr(&mut child.0)
         );
         let delete = requests.recv_timeout(Duration::from_secs(3)).unwrap();
         assert_contains(&delete.request_line, "DELETE /metrics/job/clockping ");
-        assert!(!child_stderr(&mut child).contains("failed to delete"));
+        assert!(!child_stderr(&mut child.0).contains("failed to delete"));
         fs::remove_file(path).unwrap();
         server.join().unwrap();
     }
