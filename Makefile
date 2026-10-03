@@ -391,7 +391,7 @@ case "$$HOMEBREW_TAP" in
     if git -C "$$HOMEBREW_TAP_DIR" diff --cached --quiet; then
       printf 'Homebrew formula is already up to date for %s\n' "$$TAG"
     else
-      run git -C "$$HOMEBREW_TAP_DIR" commit -m "$$APP $$version"
+      run git -C "$$HOMEBREW_TAP_DIR" commit -m "chore: release $$APP $$version"
       run git -C "$$HOMEBREW_TAP_DIR" push "$$HOMEBREW_TAP_REMOTE" HEAD
     fi
     ;;
