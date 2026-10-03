@@ -124,6 +124,8 @@ Supported file formats are listed below.
 - `jsonl`: keeps every probe event as JSON Lines.
 - `prometheus`: keeps the latest Prometheus text snapshot.
 
+Pushgateway HTTP delivery and retries run in one worker with a 16-batch FIFO. When the queue fills, producers wait outside the shared aggregation lock and probe cadence slows; completed file events and stdout are recorded before this backpressure. Normal requests use `--push.timeout` and `--push.retries`, but exit cleanup has a total one-second budget for final enqueue/drain and a separate one-second budget for optional DELETE. Unsent pushes, interrupted retries, or failed deletion are reported on stderr; DELETE is bounded best effort, not a guarantee when the gateway is unavailable. These limits do not preempt synchronous file/stdout I/O.
+
 The included `docker-compose.yml` provides a local visualization stack.
 Run `docker compose up` to start Pushgateway, Prometheus, and Grafana.
 By default it binds Pushgateway to `127.0.0.1:9091`, Prometheus to `127.0.0.1:9090`, and Grafana to `127.0.0.1:3000`. Set `PUSHGATEWAY_PORT`, `PROMETHEUS_PORT`, or `GRAFANA_PORT` to change host ports. For intentional remote access, set `OBSERVABILITY_HOST` to the desired host interface, configure a strong `GRAFANA_ADMIN_PASSWORD`, and protect access to all three services (especially the unauthenticated Pushgateway and Prometheus) with a firewall and authenticated TLS reverse proxy. The default Grafana credentials are suitable only for local development.
