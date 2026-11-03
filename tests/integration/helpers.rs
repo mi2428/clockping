@@ -128,9 +128,27 @@ fn capture_pushgateway_request(mut stream: TcpStream) -> Option<CapturedHttpRequ
     let request = read_pushgateway_request(&mut stream)?;
     let _ = io::Write::write_all(
         &mut stream,
-        b"HTTP/1.1 202 Accepted\r\nContent-Length: 0\r\n\r\n",
+        b"HTTP/1.1 202 Accepted\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
     );
     Some(request)
+}
+
+#[test]
+fn capture_announces_connection_close() {
+    let (url, requests) = spawn_pushgateway_capture();
+    let mut stream = TcpStream::connect(url.strip_prefix("http://").unwrap()).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(3)))
+        .unwrap();
+    io::Write::write_all(
+        &mut stream,
+        b"PUT /metrics/job/test HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\n\r\n",
+    )
+    .unwrap();
+    let mut response = String::new();
+    io::Read::read_to_string(&mut stream, &mut response).unwrap();
+    assert_contains(&response, "\r\nConnection: close\r\n");
+    requests.recv_timeout(Duration::from_secs(3)).unwrap();
 }
 
 pub fn spawn_slow_pushgateway_capture(

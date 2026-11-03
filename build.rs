@@ -23,12 +23,7 @@ fn emit_build_metadata(manifest_dir: &Path, host: &str, target: &str, profile: &
     emit_git_rerun_instructions(manifest_dir);
 
     let git_describe = read_nonempty_env("CLOCKPING_GIT_DESCRIBE")
-        .or_else(|| {
-            git_output(
-                manifest_dir,
-                ["describe", "--tags", "--always", "--dirty=-dirty"],
-            )
-        })
+        .or_else(|| git_describe(manifest_dir))
         .unwrap_or_else(|| "unknown".to_owned());
     let git_commit = read_nonempty_env("CLOCKPING_GIT_COMMIT")
         .or_else(|| git_output(manifest_dir, ["rev-parse", "HEAD"]))
@@ -114,6 +109,24 @@ fn git_output<const N: usize>(manifest_dir: &Path, args: [&str; N]) -> Option<St
     let value = String::from_utf8(output.stdout).ok()?;
     let value = value.trim().to_owned();
     (!value.is_empty()).then_some(value)
+}
+
+fn git_describe(manifest_dir: &Path) -> Option<String> {
+    let mut describe = git_output(manifest_dir, ["describe", "--tags", "--always"])?;
+    // describe --dirty can rewrite the index despite GIT_OPTIONAL_LOCKS=0.
+    let status = Command::new("git")
+        .args(["status", "--porcelain", "--untracked-files=no"])
+        .env("GIT_OPTIONAL_LOCKS", "0")
+        .current_dir(manifest_dir)
+        .output()
+        .ok()?;
+    if !status.status.success() {
+        return None;
+    }
+    if !status.stdout.is_empty() {
+        describe.push_str("-dirty");
+    }
+    Some(describe)
 }
 
 fn read_nonempty_env(key: &str) -> Option<String> {
