@@ -1,4 +1,2 @@
-paths:
-  .github/workflows/release.yml:
-    ignore:
-      - 'shellcheck reported issue in this script: SC(2001|2086|2129):.+'
+self-hosted-runner:
+  labels: [ubuntu-latest-self-hosted]

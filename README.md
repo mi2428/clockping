@@ -1,5 +1,7 @@
 # clockping
 
+[![CI](https://github.com/mi2428/clockping/actions/workflows/checks.yml/badge.svg)](https://github.com/mi2428/clockping/actions/workflows/checks.yml)
+
 A multi-protocol, multi-target pinger for watching hosts go dark.
 
 [![](https://github.com/mi2428/clockping/blob/main/screencast.gif?raw=true)](https://github.com/mi2428/clockping/blob/main/screencast.gif)
