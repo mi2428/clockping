@@ -30,13 +30,26 @@ def git(directory, *args):
     return command(directory, "git", *args).stdout.strip()
 
 
+def reference_describe(directory):
+    index = Path(git(directory, "rev-parse", "--git-path", "index"))
+    if not index.is_absolute():
+        index = directory / index
+    # Keep the independent Git oracle from modifying the index Cargo watches.
+    with tempfile.TemporaryDirectory(prefix="describe-index-", dir=directory / "target") as temporary:
+        copied_index = Path(temporary) / "index"
+        shutil.copy2(index, copied_index)
+        assert copied_index.stat().st_mtime_ns == index.stat().st_mtime_ns
+        return command(directory, "git", "describe", "--tags", "--always", "--dirty=-dirty",
+                       extra_env={"GIT_INDEX_FILE": str(copied_index)}).stdout.strip()
+
+
 def verify(directory, label, *, overrides=None, reuse=False):
     values = dict(env, **(overrides or {}))
     result = command(directory, "cargo", "build", "-vv", extra_env={
         **(overrides or {}), "CARGO_TARGET_DIR": str(directory / "target"),
     })
     actual = command(directory, str(directory / "target/debug/clockping"), "--version").stdout.strip()
-    describe = values.get("CLOCKPING_GIT_DESCRIBE") or git(directory, "describe", "--tags", "--always", "--dirty=-dirty")
+    describe = values.get("CLOCKPING_GIT_DESCRIBE") or reference_describe(directory)
     commit = values.get("CLOCKPING_GIT_COMMIT") or git(directory, "rev-parse", "HEAD")
     date = values.get("CLOCKPING_GIT_COMMIT_DATE") or git(directory, "show", "-s", "--format=%cI", "HEAD")
     built = values.get("CLOCKPING_BUILD_DATE") or datetime.fromtimestamp(
@@ -70,7 +83,6 @@ with tempfile.TemporaryDirectory(prefix="clockping-build-metadata-", dir=root / 
     git(fixture, "add", ".")
     git(fixture, "commit", "-m", "fixture")
     verify(fixture, "normal initial")
-    # git describe --dirty can refresh a newly created index once; not every build.
     verify(fixture, "normal index-refresh check")
     verify(fixture, "normal no-op", reuse=True)
     git(fixture, "tag", "fixture-v1")
@@ -78,6 +90,11 @@ with tempfile.TemporaryDirectory(prefix="clockping-build-metadata-", dir=root / 
     (fixture / "state.txt").write_text("dirty\n")
     verify(fixture, "normal tracked-dirty-only")
     verify(fixture, "normal dirty no-op", reuse=True)
+    git(fixture, "add", "state.txt")
+    (fixture / "state.txt").write_text("clean\n")
+    verify(fixture, "normal staged change with worktree equal to HEAD")
+    git(fixture, "reset", "--", "state.txt")
+    verify(fixture, "normal staged change reverted")
     (fixture / "state.txt").unlink()
     verify(fixture, "normal tracked deletion")
     git(fixture, "restore", "state.txt")
